@@ -1,31 +1,41 @@
-.container {
+/* App.css */
+
+.dashboard-container {
   display: flex;
-  flex-direction: column; /* 수평 나열 */
+  flex-direction: column;
   height: 100vh;
+  background-color: #1a1a1a;
 }
 
-.dashboard-pane, .external-pane, .internal-pane {
+header {
+  background-color: #282c34;
+  color: white;
+  padding: 16px 24px;
+}
+
+.external-pane, .internal-pane {
   flex: 1;
   padding: 1rem;
-  overflow: auto;
-  background-color: #222;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.external-pane {
+  background-color: #1e1e2f;
   color: white;
   border-right: 1px solid #444;
 }
 
-.dashboard-pane {
-  background-color: #2a2a2a;
-}
-
-.external-pane {
-  background-color: #1d2033;
-}
-
 .internal-pane {
   background-color: #181824;
+  color: white;
 }
 
-/* 각 타이틀 스타일 */
-h2 {
+.external-pane h2,
+.internal-pane h2 {
   margin-top: 0;
+  margin-bottom: 0.5rem;
+  font-size: 1.2rem;
+  padding-left: 10px;
 }

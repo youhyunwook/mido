@@ -1,60 +1,157 @@
-import React, { useState } from "react";
+// import React, { useState, useEffect } from "react";
+// import ForceGraph3D from "react-force-graph-3d";
+// import { createHierarchicalGraphLayers } from "./GraphUtil";
+
+// function InternalNetwork() {
+//   const [graph] = useState(() =>
+//     createHierarchicalGraphLayers({
+//       layers: [
+//         { name: "physigs", count: 6 },
+//         { name: "logical", count: 18 },
+//         { name: "persona", count: 48 }
+//       ]
+//     })
+//   );
+
+//   const [dimensions, setDimensions] = useState({
+//     width: window.innerWidth,
+//     height: window.innerHeight
+//   });
+
+//   useEffect(() => {
+//     const handleResize = () => setDimensions({
+//       width: window.innerWidth,
+//       height: window.innerHeight
+//     });
+//     window.addEventListener("resize", handleResize);
+//     return () => window.removeEventListener("resize", handleResize);
+//   }, []);
+
+//   const width = dimensions.width / 2;
+//   const height = dimensions.height - 72;
+
+//   return (
+//     <div style={{ width: "100%", height: "100%" }}>
+//       <ForceGraph3D
+//         graphData={graph}
+//         width={width}
+//         height={height}
+//         nodeLabel="name"
+//         nodeAutoColorBy="layer"
+//         nodeOpacity={0.95}
+//         linkOpacity={0.8}
+//         backgroundColor="#00000000"
+//         // 필요하면 다음 작성도 가능:
+//         // dagMode="zout"
+//         // dagLevelDistance={200}
+//       />
+//     </div>
+//   );
+// }
+
+import React, { useState, useEffect, useRef } from "react";
 import ForceGraph3D from "react-force-graph-3d";
+import { createHierarchicalGraphLayers } from "./GraphUtil";
+import * as THREE from "three";
 
-// 노드 데이터와 링크 데이터 동적 생성 예시
-function generateGraph(rings = 3, nodesPerRing = 8) {
-  const nodes = [];
-  const links = [];
-  let nodeId = 0;
-
-  // 중심 노드
-  nodes.push({ id: "center", group: 0, label: "Center" });
-
-  // 원형 배치된 노드들과 연결 생성
-  for (let r = 1; r <= rings; r++) {
-    for (let k = 0; k < nodesPerRing; k++) {
-      const angle = (2 * Math.PI * k) / nodesPerRing;
-      // 구/원상 배치
-      const x = r * 50 * Math.cos(angle);
-      const y = r * 50 * Math.sin(angle);
-      const z = r * 25 * (k % 2 === 0 ? 1 : -1);
-      const id = `node${nodeId++}`;
-      nodes.push({
-        id,
-        group: r,
-        label: `R${r}-N${k + 1}`,
-        x,
-        y,
-        z
-      });
-      // 중심 노드와 연결
-      links.push({ source: "center", target: id });
-      // 이웃 노드 간 원형 연결
-      if (k > 0) {
-        links.push({ source: `node${nodeId - 2}`, target: id });
-      }
-      // 원형 폐쇄 연결
-      if (k === nodesPerRing - 1)
-        links.push({ source: id, target: `node${nodeId - nodesPerRing}` });
-    }
-  }
-  return { nodes, links };
-}
+const LAYERS = [
+  { name: "physigs", count: 6 },
+  { name: "logical", count: 18 },
+  { name: "persona", count: 48 }
+];
+const Z_DISTANCE = 200; // 계층별 z-좌표 간격
 
 function InternalNetwork() {
-  const [graph] = useState(() => generateGraph(3, 8)); // 3개의 링, 각 링마다 8개 노드
+  const [graph] = useState(() =>
+    createHierarchicalGraphLayers({ layers: LAYERS })
+  );
+
+  const [dimensions, setDimensions] = useState({
+    width: window.innerWidth,
+    height: window.innerHeight
+  });
+  useEffect(() => {
+    const handleResize = () =>
+      setDimensions({ width: window.innerWidth, height: window.innerHeight });
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+  const width = dimensions.width / 2;
+  const height = dimensions.height - 72;
+
+  const fgRef = useRef();
+
+  // ▶️ 계층별 반투명 평면과 텍스트 추가
+  useEffect(() => {
+    if (!fgRef.current) return;
+    const scene = fgRef.current.scene();
+    // 중복 방지: 이미 있으면 제거
+    const old = scene.getObjectByName("layer_planes_group");
+    if (old) scene.remove(old);
+    const group = new THREE.Group();
+    group.name = "layer_planes_group";
+    LAYERS.forEach((layer, i) => {
+      // 현재 계층 노드 그리드 예상 범위 계산
+      const cols = Math.ceil(Math.sqrt(layer.count));
+      const rows = Math.ceil(layer.count / cols);
+      const planeWidth = Math.max(400, cols * 120);
+      const planeHeight = Math.max(250, rows * 120);
+
+      // ▶️ 반투명 흰색 평면
+      const planeGeo = new THREE.PlaneGeometry(planeWidth, planeHeight);
+      const planeMat = new THREE.MeshLambertMaterial({
+        color: 0xf0f0f0,
+        transparent: true,
+        opacity: 0.3, // 30% 투명도
+        side: THREE.DoubleSide
+      });
+      const plane = new THREE.Mesh(planeGeo, planeMat);
+      plane.position.set(0, 0, i * Z_DISTANCE);
+      group.add(plane);
+
+      // ▶️ 계층명 텍스트 SPRITE
+      const canvas = document.createElement("canvas");
+      const csize = 256;
+      canvas.width = csize; canvas.height = csize;
+      const ctx = canvas.getContext('2d');
+      ctx.font = "bold 48px sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.shadowColor = "#000";
+      ctx.shadowBlur = 10;
+      ctx.fillStyle = "#FFF";
+      ctx.strokeStyle = "#222";
+      ctx.fillText(layer.name, csize / 2, csize / 2);
+      ctx.strokeText(layer.name, csize / 2, csize / 2);
+
+      const texture = new THREE.CanvasTexture(canvas);
+      const spriteMat = new THREE.SpriteMaterial({ map: texture, transparent: true });
+      const sprite = new THREE.Sprite(spriteMat);
+      sprite.position.set(-planeWidth / 2 - 80, -planeHeight / 2 + 40, i * Z_DISTANCE + 8);
+      sprite.scale.set(140, 50, 1);
+      group.add(sprite);
+    });
+    scene.add(group);
+
+    // 정리
+    return () => {
+      scene.remove(group);
+    };
+    // eslint-disable-next-line
+  }, [fgRef, graph, width, height]);
 
   return (
-    <div style={{ width: "100vw", height: "100vh", background: "#181824" }}>
+    <div style={{ width, height }}>
       <ForceGraph3D
+        ref={fgRef}
         graphData={graph}
-        nodeLabel="label"
-        linkDirectionalArrowLength={6}
-        linkWidth={1.5}
-        nodeAutoColorBy="group"
-        nodeOpacity={0.9}
+        width={width}
+        height={height}
+        nodeLabel="name"
+        nodeAutoColorBy="layer"
+        nodeOpacity={0.95}
         linkOpacity={0.8}
-        backgroundColor="#181824"
+        backgroundColor="#00000000"
       />
     </div>
   );

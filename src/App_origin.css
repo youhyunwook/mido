@@ -1,0 +1,32 @@
+.container {
+  display: flex;
+  flex-direction: column; /* 수평 나열 */
+  height: 100vh;
+}
+
+.dashboard-pane, .external-pane, .internal-pane {
+  flex: 0.5;
+  padding: 1rem;
+  overflow: auto;
+  background-color: #222;
+  color: white;
+  border-right: 1px solid #444;
+}
+
+.dashboard-pane {
+  background-color: #2a2a2a;
+}
+
+.external-pane {
+  background-color: #000000;
+}
+
+.internal-pane {
+  background-color: #000000;
+}
+
+/* 각 타이틀 스타일 */
+h2 {
+  margin-top: 0;
+} 
+

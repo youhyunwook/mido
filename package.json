@@ -13,7 +13,7 @@
     "react-force-graph-3d": "^1.28.0",
     "react-globe.gl": "^2.34.0",
     "react-router-dom": "^7.6.3",
-    "react-scripts": "5.0.1",
+    "react-scripts": "^5.0.1",
     "three": "^0.178.0",
     "uvicorn": "^0.0.1-security",
     "web-vitals": "^2.1.4"

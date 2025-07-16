@@ -3,47 +3,60 @@ import Globe from "react-globe.gl";
 
 function ExternalNetwork() {
   const [markers, setMarkers] = useState([]);
+  const [dimensions, setDimensions] = useState({
+    width: window.innerWidth,
+    height: window.innerHeight,
+  });
 
   useEffect(() => {
-    // 실제 백엔드 API 주소로 교체하세요
+    // 마커 데이터 불러오기
     fetch("http://localhost:8000/neo4j/nodes")
       .then((res) => res.json())
       .then((data) => {
-        setMarkers(data); // 서버에서 반환하는 [{id, city, lat, lng, label}] 배열
+        setMarkers(data);
       })
       .catch((error) => {
         console.error("마커 데이터 불러오기 실패:", error);
       });
   }, []);
 
-  const handleMarkerClick = (marker) => {
-    alert(marker.city ? `${marker.city}!` : marker.id);
-  };
+  useEffect(() => {
+    // 브라우저 창 크기 변경 감지
+    const handleResize = () => {
+      setDimensions({
+        width: window.innerWidth,
+        height: window.innerHeight,
+      });
+    };
 
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
+  // 레이아웃 상 외부망이 화면 절반을 차지한다고 가정
+  const width = dimensions.width / 2;
+  const height = dimensions.height - 72; // 예: 헤더 높이 차감
+
+  // ✅ 기본 렌더
   return (
-    <div style={{ width: "100vw", height: "100vh", background: "#021027" }}>
+    <div style={{ width: "100%", height: "100%" }}>
       <Globe
-        globeImageUrl="//unpkg.com/three-globe/example/img/earth-blue-marble.jpg"
-        backgroundColor="#8ba9d8ff"
-        showAtmosphere={true}
-        htmlElementsData={markers}
-        htmlElement={(marker) => (
-          <div
-            style={{
-              color: "red",
-              fontSize: "2rem",
-              cursor: "pointer",
-              fontWeight: "bold"
-            }}
-            onClick={() => handleMarkerClick(marker)}
-            title={marker.city}
-          >
-            {marker.label}
-          </div>
-        )}
+        width={width}
+        height={height}
+        globeImageUrl="/globe_image.jpg"
+        pointsData={markers}
+        pointLabel="label"
+        pointLat="lat"
+        pointLng="lng"
+        pointColor={() => "orange"}
+        onPointClick={handleMarkerClick}
       />
     </div>
   );
+
+  function handleMarkerClick(marker) {
+    alert(marker.city ? `${marker.city}!` : marker.id);
+  }
 }
 
 export default ExternalNetwork;

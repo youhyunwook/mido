@@ -84,3 +84,67 @@ def get_neo4j_nodes():
 @app.get("/mongo/movies")
 def get_mongo_markers():
     return fetch_mongo_markers()
+
+
+# from fastapi import FastAPI
+# from fastapi.middleware.cors import CORSMiddleware
+# from neo4j import GraphDatabase
+# from pymongo import MongoClient
+
+# # Neo4j 연결 설정 및 클래스
+# class Neo4jConnector:
+#     def __init__(self):  # 생성자: 연결 정보 설정
+#         self.driver = GraphDatabase.driver("bolt://localhost:7687", auth=("neo4j", "1234"))
+
+#     def close(self):  # 연결 종료
+#         self.driver.close()
+
+#     def fetch_nodes(self):
+#         with self.driver.session() as session:
+#             result = session.run("MATCH (n:City) RETURN n.city AS city, n.lat AS lat, n.lng AS lng")
+#             markers = []
+#             for record in result:
+#                 markers.append({
+#                     "city": record["city"],
+#                     "lat": record["lat"],
+#                     "lng": record["lng"]
+#                 })
+#             return markers
+
+# # MongoDB 연결 설정 및 클래스
+# class MongoDBConnector:
+#     def __init__(self):
+#         self.client = MongoClient("mongodb://localhost:27017/")
+#         self.db = self.client["test"]
+#         self.movies_collection = self.db["movies"]
+
+#     def fetch_movies(self):
+#         return list(self.movies_collection.find({}, {"_id": 0, "title": 1, "director": 1}))
+
+# # FastAPI 앱 생성
+# app = FastAPI()
+
+# # CORS 모든 도메인 허용 설정
+# app.add_middleware(
+#     CORSMiddleware,
+#     allow_origins=["*"],
+#     allow_credentials=True,
+#     allow_methods=["*"],
+#     allow_headers=["*"],
+# )
+
+# # 네오4j 인스턴스 생성
+# neo4j_connector = Neo4jConnector()
+
+# # 몽고디비 인스턴스 생성
+# mongo_connector = MongoDBConnector()
+
+# # Neo4j 노드 데이터 반환 API
+# @app.get("/neo4j/nodes")
+# def get_neo4j_nodes():
+#     return neo4j_connector.fetch_nodes()
+
+# # MongoDB 영화 데이터 반환 API
+# @app.get("/mongo/movies")
+# def get_mongo_movies():
+#     return mongo_connector.fetch_movies()

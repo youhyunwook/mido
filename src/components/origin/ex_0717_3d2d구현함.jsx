@@ -1,7 +1,7 @@
-import React, { useEffect, useRef, useState, useCallback } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import Globe from "react-globe.gl";
 import { ComposableMap, Geographies, Geography, Marker, ZoomableGroup } from "react-simple-maps";
-import { geoCentroid } from "d3-geo";
+// geoCentroid import 삭제
 
 const geoUrl = "/2d_world.json";
 
@@ -13,10 +13,9 @@ function ExternalNetwork() {
     height: window.innerHeight,
   });
   const [show2D, setShow2D] = useState(false);
-  const [mapCenter, setMapCenter] = useState([126.37]);
+  const [mapCenter, setMapCenter] = useState([0, 20]);
   const [mapZoom, setMapZoom] = useState(1);
   const [mapKey, setMapKey] = useState(0);
-  const [lastDblClick, setLastDblClick] = useState(0);
 
   // A↔B 데이터 송수신 아크 예시 (서울-도쿄)
   const arcsData = [
@@ -97,22 +96,17 @@ function ExternalNetwork() {
     setMapKey((prev) => prev + 1);
   };
 
-  // 국가 더블클릭 시 해당 국가로 zoom in & center 이동 (debounce, 최대 zoom 제한, 버블링 방지)
-  const handleCountryDoubleClick = useCallback(
-    (geo, event) => {
-      event.stopPropagation && event.stopPropagation();
-      const now = Date.now();
-      // 400ms 이내 중복 방지(더블클릭 debounce)
-      if (now - lastDblClick < 400) return;
-      setLastDblClick(now);
-
-      const [lng, lat] = geoCentroid(geo);
+  // 국가 더블클릭 시 해당 국가로 zoom in & center 이동
+  const handleCountryDoubleClick = (geo) => {
+    // d3-geo 패키지의 geoCentroid 함수는 이 함수 내에서 import 처리 (코드 중복방지)
+    // 패키지 import 구문은 함수 내부용 동적 import로 대체  
+    import("d3-geo").then(({ geoCentroid }) => {
+      const [lng, lat] = geoCentroid(geo); // 국가 중심좌표 계산 ([경도, 위도])
       setMapCenter([lng, lat]);
-      setMapZoom(z => Math.min(Number(z) * 1.5, 8)); // 과도한 확대 제한
+      setMapZoom(z => Math.min(z * 1.5, 10));
       setMapKey(prev => prev + 1);
-    },
-    [lastDblClick]
-  );
+    });
+  };
 
   if (show2D) {
     return (
@@ -144,7 +138,7 @@ function ExternalNetwork() {
                       hover: { fill: "#4EA7C4", stroke: "#000000ff" },
                       pressed: { fill: "#0E7FCB", stroke: "#000000ff"}
                     }}
-                    onDoubleClick={(e) => handleCountryDoubleClick(geo, e)}
+                    onDoubleClick={() => handleCountryDoubleClick(geo)}
                   />
                 ))
               }

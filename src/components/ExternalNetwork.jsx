@@ -1,8 +1,14 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import Globe from "react-globe.gl";
-import { ComposableMap, Geographies, Geography, Marker, ZoomableGroup } from "react-simple-maps";
+import {
+  ComposableMap,
+  Geographies,
+  Geography,
+  Marker,
+  ZoomableGroup
+} from "react-simple-maps";
 import { geoCentroid } from "d3-geo";
-
+import arcsData from "../arcs.js";
 const geoUrl = "/2d_world.json";
 
 function ExternalNetwork() {
@@ -10,33 +16,13 @@ function ExternalNetwork() {
   const [markers, setMarkers] = useState([]);
   const [dimensions, setDimensions] = useState({
     width: window.innerWidth,
-    height: window.innerHeight,
+    height: window.innerHeight
   });
   const [show2D, setShow2D] = useState(false);
   const [mapCenter, setMapCenter] = useState([126.37]);
   const [mapZoom, setMapZoom] = useState(1);
   const [mapKey, setMapKey] = useState(0);
   const [lastDblClick, setLastDblClick] = useState(0);
-
-  // A↔B 데이터 송수신 아크 예시 (서울-도쿄)
-  const arcsData = [
-    {
-      startLat: 37.567,
-      startLng: 126.978,
-      endLat: 35.689,
-      endLng: 139.691,
-      color: ["#00ffae", "#ff0066"],
-      label: "서울→도쿄 데이터 송신"
-    },
-    {
-      startLat: 35.689,
-      startLng: 139.691,
-      endLat: 37.567,
-      endLng: 126.978,
-      color: ["#ff0066", "#00ffae"],
-      label: "도쿄→서울 데이터 응답"
-    }
-  ];
 
   // 마커 데이터 fetch
   useEffect(() => {
@@ -51,7 +37,10 @@ function ExternalNetwork() {
   // 창 크기 반영
   useEffect(() => {
     const handleResize = () =>
-      setDimensions({ width: window.innerWidth, height: window.innerHeight });
+      setDimensions({
+        width: window.innerWidth,
+        height: window.innerHeight
+      });
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
   }, []);
@@ -59,7 +48,7 @@ function ExternalNetwork() {
   const width = dimensions.width / 2;
   const height = dimensions.height - 72;
 
-  // zoomDistance 기반 2D/3D 반복 자동 전환
+  // zoomDistance 기반 2D/3D 자동 전환
   useEffect(() => {
     if (!globeRef.current) return;
     const controls = globeRef.current.controls();
@@ -85,7 +74,6 @@ function ExternalNetwork() {
     }
   }, [show2D]);
 
-  // 3D로 복귀(버튼)
   const handleGoto3D = () => {
     setShow2D(false);
   };
@@ -102,98 +90,141 @@ function ExternalNetwork() {
     (geo, event) => {
       event.stopPropagation && event.stopPropagation();
       const now = Date.now();
-      // 400ms 이내 중복 방지(더블클릭 debounce)
       if (now - lastDblClick < 400) return;
       setLastDblClick(now);
-
       const [lng, lat] = geoCentroid(geo);
       setMapCenter([lng, lat]);
-      setMapZoom(z => Math.min(Number(z) * 1.5, 8)); // 과도한 확대 제한
-      setMapKey(prev => prev + 1);
+      setMapZoom((z) => Math.min(Number(z) * 1.5, 8));
+      setMapKey((prev) => prev + 1);
     },
     [lastDblClick]
   );
 
+  // 2D 아크 라인(곡선) 렌더링 (SVG Path 활용)
+  function CustomArcs({ arcsData, projection }) {
+    return (
+      <>
+        {arcsData.map((arc, idx) => {
+          const [startX, startY] = projection([arc.startLng, arc.startLat]);
+          const [endX, endY] = projection([arc.endLng, arc.endLat]);
+          // control point를 위로 이동하여 globe 느낌의 곡선 구현
+          const curveAmount = -40;
+          const cx = (startX + endX) / 2;
+          const cy = (startY + endY) / 2 + curveAmount;
+          return (
+            <path
+              key={idx}
+              d={`M${startX},${startY} Q${cx},${cy} ${endX},${endY}`}
+              stroke={arc.color ? arc.color[0] : "#888"}
+              strokeWidth={2}
+              fill="none"
+              opacity={0.7}
+              strokeDasharray="6,2"
+            />
+          );
+        })}
+      </>
+    );
+  }
+
   if (show2D) {
     return (
-      <div style={{ width, height, background: "#fff" }}>
+      <div style={{ width, height, background: "#181830" }}>
+        <button
+          onClick={handleGoto3D}
+          style={{ position: "absolute", zIndex: '10%', left: "41%", top: "6.6%"}}
+        >
+          3D Globe로 보기
+        </button>
         <ComposableMap
           key={mapKey}
-          projection="geoMercator"
           width={width}
           height={height}
+          projection="geoMercator"
+          style={{ background: "#252540" }}
         >
           <ZoomableGroup
             center={mapCenter}
             zoom={mapZoom}
-            onMoveEnd={({ center, zoom }) => {
-              setMapCenter(center);
-              setMapZoom(zoom);
-            }}
+            maxZoom={10}
+            minZoom={1}
           >
             <Geographies geography={geoUrl}>
-              {({ geographies }) =>
-                geographies.map((geo) => (
-                  <Geography
-                    key={geo.rsmKey}
-                    geography={geo}
-                    stroke="#B0BFC6"
-                    strokeWidth={0.7}
-                    style={{
-                      default: { fill: "#D6F0FA", stroke: "#000000ff" },
-                      hover: { fill: "#4EA7C4", stroke: "#000000ff" },
-                      pressed: { fill: "#0E7FCB", stroke: "#000000ff"}
-                    }}
-                    onDoubleClick={(e) => handleCountryDoubleClick(geo, e)}
-                  />
-                ))
-              }
+              {({ geographies, projection }) => (
+                <>
+                  {geographies.map((geo) => (
+                    <Geography
+                      key={geo.rsmKey}
+                      geography={geo}
+                      fill="#272744"
+                      stroke="#777"
+                      onDoubleClick={(e) => handleCountryDoubleClick(geo, e)}
+                      style={{
+                        default: { outline: "none" },
+                        hover: { fill: "#006ca9", outline: "none" }
+                      }}
+                    />
+                  ))}
+                  <CustomArcs arcsData={arcsData} projection={projection} />
+                </>
+              )}
             </Geographies>
-            {markers.map((marker, i) => (
+            {markers.map((marker) => (
               <Marker
-                key={i}
-                coordinates={[marker.longitude, marker.latitude]}
+                key={marker.id || marker.label || marker.lng || marker.longitude}
+                // 필드명이 longitude/latitude 혹은 lng/lat 모두 대응
+                coordinates={[
+                  marker.longitude ?? marker.lng,
+                  marker.latitude ?? marker.lat
+                ]}
                 onClick={() =>
-                  handleMarkerClick([marker.longitude, marker.latitude])
+                  handleMarkerClick([
+                    marker.longitude ?? marker.lng,
+                    marker.latitude ?? marker.lat
+                  ])
                 }
               >
-                <circle r={4} fill="#F53" />
-                <text textAnchor="middle" y={-10} style={{ fontSize: 10 }}>
+                <circle r={4} fill="#ffd700" stroke="#fff" />
+                <text y={-14} fontSize={10} fill="#fff">
                   {marker.label}
                 </text>
               </Marker>
             ))}
           </ZoomableGroup>
         </ComposableMap>
-        <button onClick={handleGoto3D}>3D Globe로 보기</button>
       </div>
     );
   }
 
-  // 3D Globe (아크 시각화 포함)
+  // 3D Globe
   return (
-    <Globe
-      ref={globeRef}
-      width={width}
-      height={height}
-      arcsData={arcsData}
-      arcStartLat="startLat"
-      arcStartLng="startLng"
-      arcEndLat="endLat"
-      arcEndLng="endLng"
-      arcColor="color"
-      arcDashLength={0.4}
-      arcDashGap={0.1}
-      arcDashAnimateTime={1200}
-      arcLabel="label"
-      pointsData={markers}
-      pointLat="latitude"
-      pointLng="longitude"
-      pointLabel="label"
-      pointColor={() => "#FF5533"}
-      pointAltitude={0.02}
-      globeImageUrl="https://unpkg.com/three-globe/example/img/earth-blue-marble.jpg"
-    />
+    <div style={{ width, height }}>
+      <Globe
+        ref={globeRef}
+        width={width}
+        height={height}
+        arcsData={arcsData}
+        arcLabel={d => d.label}
+        arcColor={d => d.color}
+        arcDashLength={0.4}
+        arcDashGap={0.3}
+        arcStroke={0.2}
+        arcDashAnimateTime={4000}
+        pointsData={markers}
+        pointLat={markers.length && "latitude" in markers[0] ? "latitude" : "lat"}
+        pointLng={markers.length && "longitude" in markers[0] ? "longitude" : "lng"}
+        pointLabel="label"
+        pointColor={() => "#FF5533"}
+        pointAltitude={0.02}
+        globeImageUrl="https://unpkg.com/three-globe/example/img/earth-blue-marble.jpg"
+      />
+      <button
+        onClick={() => setShow2D(true)}
+        style={{ position: "absolute", zIndex: '10%', left: "44%", top: "6.6%"}}
+      >
+        2D로 보기
+      </button>
+    </div>
   );
 }
 

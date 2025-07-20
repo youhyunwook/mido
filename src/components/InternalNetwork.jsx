@@ -1,159 +1,117 @@
-// import React, { useState, useEffect } from "react";
-// import ForceGraph3D from "react-force-graph-3d";
-// import { createHierarchicalGraphLayers } from "./GraphUtil";
-
-// function InternalNetwork() {
-//   const [graph] = useState(() =>
-//     createHierarchicalGraphLayers({
-//       layers: [
-//         { name: "physigs", count: 6 },
-//         { name: "logical", count: 18 },
-//         { name: "persona", count: 48 }
-//       ]
-//     })
-//   );
-
-//   const [dimensions, setDimensions] = useState({
-//     width: window.innerWidth,
-//     height: window.innerHeight
-//   });
-
-//   useEffect(() => {
-//     const handleResize = () => setDimensions({
-//       width: window.innerWidth,
-//       height: window.innerHeight
-//     });
-//     window.addEventListener("resize", handleResize);
-//     return () => window.removeEventListener("resize", handleResize);
-//   }, []);
-
-//   const width = dimensions.width / 2;
-//   const height = dimensions.height - 72;
-
-//   return (
-//     <div style={{ width: "100%", height: "100%" }}>
-//       <ForceGraph3D
-//         graphData={graph}
-//         width={width}
-//         height={height}
-//         nodeLabel="name"
-//         nodeAutoColorBy="layer"
-//         nodeOpacity={0.95}
-//         linkOpacity={0.8}
-//         backgroundColor="#00000000"
-//         // 필요하면 다음 작성도 가능:
-//         // dagMode="zout"
-//         // dagLevelDistance={200}
-//       />
-//     </div>
-//   );
-// }
-
-import React, { useState, useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import ForceGraph3D from "react-force-graph-3d";
-import { createHierarchicalGraphLayers } from "./GraphUtil";
 import * as THREE from "three";
+import { createHierarchicalGraphLayers } from "./GraphUtil";
 
 const LAYERS = [
   { name: "physigs", count: 6 },
   { name: "logical", count: 18 },
   { name: "persona", count: 48 }
 ];
-const Z_DISTANCE = 200; // 계층별 z-좌표 간격
+
+// 각 레이어별 색상 지정
+const LAYER_COLORS = {
+  physigs: 0xffe082,   // 옅은 주황
+  logical: 0x90caf9,   // 옅은 파랑
+  persona: 0xb39ddb    // 옅은 보라
+};
 
 function InternalNetwork() {
-  const [graph] = useState(() =>
-    createHierarchicalGraphLayers({ layers: LAYERS })
-  );
-
-  const [dimensions, setDimensions] = useState({
-    width: window.innerWidth,
-    height: window.innerHeight
-  });
-  useEffect(() => {
-    const handleResize = () =>
-      setDimensions({ width: window.innerWidth, height: window.innerHeight });
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
-  }, []);
-  const width = dimensions.width / 2;
-  const height = dimensions.height - 72;
-
+  const [graph] = useState(() => createHierarchicalGraphLayers({ layers: LAYERS }));
   const fgRef = useRef();
 
-  // ▶️ 계층별 반투명 평면과 텍스트 추가
   useEffect(() => {
     if (!fgRef.current) return;
     const scene = fgRef.current.scene();
-    // 중복 방지: 이미 있으면 제거
-    const old = scene.getObjectByName("layer_planes_group");
-    if (old) scene.remove(old);
+    let oldGroup = scene.getObjectByName("layer_planes_group");
+    if (oldGroup) scene.remove(oldGroup);
+
+    // 각 레이어별 노드 좌표 수집
+    const layerNodes = {};
+    graph.nodes.forEach(n => {
+      layerNodes[n.layer] = layerNodes[n.layer] || [];
+      layerNodes[n.layer].push(n);
+    });
+
+    const margin = 50;
     const group = new THREE.Group();
     group.name = "layer_planes_group";
-    LAYERS.forEach((layer, i) => {
-      // 현재 계층 노드 그리드 예상 범위 계산
-      const cols = Math.ceil(Math.sqrt(layer.count));
-      const rows = Math.ceil(layer.count / cols);
-      const planeWidth = Math.max(400, cols * 120);
-      const planeHeight = Math.max(250, rows * 120);
 
-      // ▶️ 반투명 흰색 평면
-      const planeGeo = new THREE.PlaneGeometry(planeWidth, planeHeight);
-      const planeMat = new THREE.MeshLambertMaterial({
-        color: 0xf0f0f0,
+    Object.entries(layerNodes).forEach(([layer, nodes]) => {
+      if (!nodes.length) return;
+      const minX = Math.min(...nodes.map(n => n.fx ?? n.x ?? 0));
+      const maxX = Math.max(...nodes.map(n => n.fx ?? n.x ?? 0));
+      const minY = Math.min(...nodes.map(n => n.fy ?? n.y ?? 0));
+      const maxY = Math.max(...nodes.map(n => n.fy ?? n.y ?? 0));
+      const z = nodes[0].fz ?? nodes[0].z ?? 0;
+      const centerX = (minX + maxX) / 2;
+      const centerY = (minY + maxY) / 2;
+      const width = maxX - minX + margin;
+      const height = maxY - minY + margin;
+
+      // 레이어별 색상 Plane(반투명, 양면)
+      const color = LAYER_COLORS[layer] || 0xffffff;
+      const geometry = new THREE.PlaneGeometry(width, height);
+      const material = new THREE.MeshBasicMaterial({
+        color,
+        opacity: 0.18,
         transparent: true,
-        opacity: 0.3, // 30% 투명도
         side: THREE.DoubleSide
       });
-      const plane = new THREE.Mesh(planeGeo, planeMat);
-      plane.position.set(0, 0, i * Z_DISTANCE);
-      group.add(plane);
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.position.set(centerX, centerY, z);
+      mesh.name = `${layer}_plane`;
+      group.add(mesh);
 
-      // ▶️ 계층명 텍스트 SPRITE
-      const canvas = document.createElement("canvas");
-      const csize = 256;
-      canvas.width = csize; canvas.height = csize;
+      // 레이어 명칭 라벨(Sprite 이용)
+      const fontSize = 36;
+      const canvas = document.createElement('canvas');
+      canvas.width = 256;
+      canvas.height = 64;
       const ctx = canvas.getContext('2d');
-      ctx.font = "bold 48px sans-serif";
-      ctx.textAlign = "center";
+      ctx.font = `bold ${fontSize}px sans-serif`;
+      ctx.textAlign = "left";
       ctx.textBaseline = "middle";
-      ctx.shadowColor = "#000";
-      ctx.shadowBlur = 10;
-      ctx.fillStyle = "#FFF";
-      ctx.strokeStyle = "#222";
-      ctx.fillText(layer.name, csize / 2, csize / 2);
-      ctx.strokeText(layer.name, csize / 2, csize / 2);
+      ctx.fillStyle = "white";
+      ctx.shadowColor = "black";
+      ctx.shadowBlur = 6;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillText(layer, 10, canvas.height / 2);
 
       const texture = new THREE.CanvasTexture(canvas);
-      const spriteMat = new THREE.SpriteMaterial({ map: texture, transparent: true });
-      const sprite = new THREE.Sprite(spriteMat);
-      sprite.position.set(-planeWidth / 2 - 80, -planeHeight / 2 + 40, i * Z_DISTANCE + 8);
-      sprite.scale.set(140, 50, 1);
+      const spriteMaterial = new THREE.SpriteMaterial({ map: texture, transparent: true });
+      const sprite = new THREE.Sprite(spriteMaterial);
+      sprite.scale.set(80, 20, 1); // 텍스트 크기
+      sprite.position.set(maxX + margin / 2 + 40, centerY, z);
+
       group.add(sprite);
     });
-    scene.add(group);
 
-    // 정리
-    return () => {
-      scene.remove(group);
-    };
-    // eslint-disable-next-line
-  }, [fgRef, graph, width, height]);
+    scene.add(group);
+  }, [graph]);
 
   return (
-    <div style={{ width, height }}>
-      <ForceGraph3D
-        ref={fgRef}
-        graphData={graph}
-        width={width}
-        height={height}
-        nodeLabel="name"
-        nodeAutoColorBy="layer"
-        nodeOpacity={0.95}
-        linkOpacity={0.8}
-        backgroundColor="#00000000"
-      />
-    </div>
+    <ForceGraph3D
+      ref={fgRef}
+      linkOpacity={0.2}
+      linkWidth={2}
+      linkColor={link => '#ccc'}
+      graphData={graph}
+      cooldownTicks={100}
+      nodeRelSize={5}
+      d3Force="charge"
+      d3VelocityDecay={0.25}
+      d3AlphaDecay={0.005}
+      nodeResolution={50}
+      onEngineInit={fg => {
+        fg.d3Force('charge').strength(0);
+        fg.d3Force('center').strength(0.2);
+      }}
+      onEngineStop={() => {
+        if (fgRef.current) fgRef.current.zoomToFit(1000, 40);
+      }}
+      nodeColor={node => LAYER_COLORS[node.layer] || 0xffffff}
+    />
   );
 }
 

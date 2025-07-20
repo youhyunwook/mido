@@ -52,7 +52,11 @@ const arcsData = [
   { startLat: 31.0461, startLng: 34.8516, endLat: 35.8617, endLng: 104.1954, color: ["#ed03ec", "#d40525"], label: "Israel→China 데이터 송신" },
   { startLat: 14.0583, startLng: 108.2772, endLat: 51.1657, endLng: 10.4515, color: ["#023397", "#3eec05"], label: "Vietnam→Germany 데이터 송신" },
   { startLat: 35.8617, startLng: 104.1954, endLat: 40.4637, endLng: -3.7492, color: ["#832f30", "#fc1774"], label: "China→Spain 데이터 송신" },
-  // ... (이어지는 50~100개 데이터, 동일한 형식으로 무작위 국가간 송수신)
+  { startLat: 37.5665, startLng: 126.9780, endLat: 34.0522, endLng: -118.2437, color: ["#0066ff", "#ffde00"], label: "한국→미국(LA) 송신" },
+  { startLat: 48.8566, startLng: 2.3522, endLat: 37.5665, endLng: 126.9780, color: ["#ff007a", "#00d084"], label: "프랑스(파리)→한국 응답" },
+  { startLat: 37.5665, startLng: 126.9780, endLat: 51.5074, endLng: -0.1278, color: ["#02c39a", "#c9184a"], label: "한국→영국(런던) 송신" },
+  { startLat: 35.6895, startLng: 139.6917, endLat: 37.5665, endLng: 126.9780, color: ["#ffbc42", "#1261a0"], label: "일본(도쿄)→한국 응답" },
+  { startLat: 37.5665, startLng: 126.9780, endLat: 55.7558, endLng: 37.6173, color: ["#2ec4b6", "#e71d36"], label: "한국→러시아(모스크바) 송신" }
 ];
 
 // 아래와 같이 끝에 export

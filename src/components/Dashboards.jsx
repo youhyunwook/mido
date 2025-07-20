@@ -1,73 +1,44 @@
 import React from "react";
-import InternalNetwork from "./InternalNetwork";
 import ExternalNetwork from "./ExternalNetwork";
+import InternalNetwork from "./InternalNetwork";
+import "../App.css";
 
 function Dashboards() {
   return (
-    <div
-      style={{
-        width: "100vw",
-        height: "100vh",
-        display: "flex",
-        flexDirection: "column", // 헤더 + 본문 세로 정렬
-      }}
-    >
-      {/* 🔼 상단 헤더 영역 */}
-      <header
-        style={{
-          background: "#282c34",
-          color: "#fff",
-          padding: "16px 24px",
-        }}
-      >
-        <h1 style={{ margin: 0 }}>네트워크 통합 대시보드</h1>
-      </header>
+    <div className="dashboard-root">
+      {/* 사이드 메뉴 */}
+      <div className="dashboard-sidebar">
+        <div className="menu-btn">☰ 메뉴</div>
+      </div>
 
-      {/* 🔽 본문 - 좌우 반분 layout */}
-      <div
-        style={{
-          flex: 1,
-          display: "flex",
-          flexDirection: "row", // 외부망 / 내부망 좌우로 정렬
-        }}
-      >
-        {/* 🌐 외부망 */}
-        <section
-          style={{
-            flex: 1,
-            background: "#1e1e2f",
-            display: "flex",
-            flexDirection: "column",
-          }}
-        >
-          <h2 style={{ color: "#fff", paddingLeft: 10, margin: 0 }}>
-            🌐 외부망
-          </h2>
-          <div style={{ flex: 1 }}>
+      {/* 대시보드 본문 */}
+      <div className="dashboard-main">
+        {/* 외부망 */}
+        <section className="external-section">
+          <header className="section-header">외부망</header>
+          <div className="network-panel">
             <ExternalNetwork />
           </div>
         </section>
-
-        {/* 🔐 내부망 */}
-        <section
-          style={{
-            flex: 1,
-            background: "#181824",
-            display: "flex",
-            flexDirection: "column",
-          }}
-        >
-          <h2 style={{ color: "#fff", paddingLeft: 10, margin: 0 }}>
-            🔐 내부망
-          </h2>
-          <div style={{ flex: 1 }}>
+        {/* 내부망 */}
+        <section className="internal-section">
+          <header className="section-header">내부망</header>
+          <div className="network-panel">
             <InternalNetwork />
           </div>
         </section>
+        {/* 로그 패널 */}
+        <aside className="log-panel">
+          <h2>이벤트 로그</h2>
+          <div className="log-content">
+            <ul>
+              <li>로그가 여기에 표시됩니다.</li>
+            </ul>
+          </div>
+        </aside>
       </div>
     </div>
   );
 }
 
 export default Dashboards;
-

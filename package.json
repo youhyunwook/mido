@@ -17,6 +17,7 @@
     "react-scripts": "^5.0.1",
     "react-simple-maps": "^3.0.0",
     "three": "^0.178.0",
+    "three-spritetext": "^1.10.0",
     "uvicorn": "^0.0.1-security",
     "web-vitals": "^2.1.4"
   },

@@ -131,10 +131,10 @@ function ExternalNetwork() {
           onClick={() => setShow2D(false)}
           style={{
             position: "absolute",
-            left: "90%",
-            top: "5%",
+            left: "50%",
+            top: "50%",
             transform: "translate(-50%, -50%)",
-            zIndex: "10vw",
+            zIndex: 10,
           }}
         >
           3D로 이동
@@ -246,10 +246,10 @@ function ExternalNetwork() {
         onClick={() => setShow2D(true)}
         style={{
           position: "absolute",
-          left: "90%",
-          top: "5%",
+          left: "50%",
+          top: "50%",
           transform: "translate(-50%, -50%)",
-          zIndex: "10vw",
+          zIndex: 10,
         }}
       >
         2D로 보기

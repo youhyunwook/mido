@@ -93,3 +93,49 @@ export function createHierarchicalGraphLayers({ layers }) {
   }
   return { nodes, links };
 }
+
+export function createLayeredGridGraph({ layers, layerGap = 200, layerRadius = 250 }) {
+  if (!Array.isArray(layers) || layers.length < 2)
+    throw new Error("layers는 2개 이상 필요");
+
+  const nodes = [];
+  const links = [];
+  const layerInfo = [];
+
+  layers.forEach((layer, idx) => {
+    const count = layer.count;
+    const radius = Array.isArray(layerRadius) ? layerRadius[idx] : layerRadius;
+    const z = idx * layerGap;
+    const angleStep = (2 * Math.PI) / count;
+    const ids = [];
+
+    for (let i = 0; i < count; i++) {
+      const angle = angleStep * i;
+      const x = Math.cos(angle) * radius;
+      const y = Math.sin(angle) * radius;
+      const id = `${layer.name}-${i+1}`;
+      nodes.push({
+        id,
+        layer: layer.name,
+        name: `${layer.name} ${i+1}`,
+        fx: x,
+        fy: y,
+        fz: z
+      });
+      ids.push(id);
+    }
+    layerInfo.push(ids);
+  });
+
+  // 위 계층 노드와 바로 아래 계층 노드 연결 (최소 1:1, round-robin)
+  for (let i = 1; i < layerInfo.length; i++) {
+    const upper = layerInfo[i-1];
+    const lower = layerInfo[i];
+    lower.forEach((lowerId, j) => {
+      const upperId = upper[j % upper.length];
+      links.push({ source: upperId, target: lowerId });
+    });
+  }
+
+  return { nodes, links };
+}

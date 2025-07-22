@@ -1,3 +1,10 @@
+/* ✅ 반드시 추가! */
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
 .dashboard-layout {
   display: grid;
   grid-template-columns: 200px 1fr 320px;
@@ -13,21 +20,26 @@
   align-items: center;
   padding-top: 32px;
   gap: 16px;
+  border-right: 1px solid #2c2c3a;
 }
 
+/* ✅ [수정] 컨테이너의 높이를 100% → 100vh */
 .dashboard-main-container {
   grid-column: 2;
   grid-row: 1;
   position: relative;
-  height: 100%;
+  height: 100vh;
 }
 
+/* ✅ (옵션, JS에서 고정 값 사용시 강력 추천) */
 .dashboard-main {
   width: 100%;
   height: 100%;
   background: #14151a;
   position: relative;
   z-index: 1;
+  min-width: 800px;
+  min-height: 600px;
 }
 
 /* ✅ 내부망 패널(오버레이) */
@@ -53,11 +65,9 @@
 
 /* ✅ 마우스 오버 시 강조 효과 (확대 아님!) */
 .dashboard-sub-overlay:hover {
-  /* 확대 제거 → 대신 그림자 강화로 강조 */
   box-shadow: 0 12px 40px 10px rgba(0, 0, 0, 0.4);
   z-index: 3;
 }
-
 
 .dashboard-log {
   grid-column: 3;
@@ -66,4 +76,111 @@
   padding: 24px;
   color: #fff;
   font-size: 1.1rem;
+}
+
+
+/* ✅ 예쁜 사이드 메뉴 버튼 스타일 (보라 계열) */
+.menu-btn {
+  min-width: 74px;
+  min-height: 46px;
+  padding: 8px 18px;
+  background: linear-gradient(90deg, #a259ff 0%, #6e53de 100%);
+  color: #fff;
+  border: 2px solid #d1b7ff;
+  border-radius: 14px;
+  font-weight: 600;
+  font-size: 1.05rem;
+  letter-spacing: 0.02em;
+  box-shadow: 0 2px 8px rgba(131, 70, 200, 0.11);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  outline: none;
+}
+
+.menu-btn:hover,
+.menu-btn:focus {
+  background: linear-gradient(90deg, #c084fc 0%, #a259ff 100%);
+  border-color: #b385fd;
+  box-shadow: 0 6px 20px rgba(148, 80, 255, 0.25);
+  transform: translateY(-2px) scale(1.03);
+}
+
+.menu-btn.main {
+  font-size: 1.3rem;
+  min-width: 50px;
+  min-height: 50px;
+  border-radius: 50%;
+  padding: 0;
+  background: linear-gradient(180deg, #a259ff 0%, #6e53de 100%);
+  border: 2.5px solid #bfe0fd;
+  box-shadow: 0 2px 20px rgba(150, 80, 230, 0.12);
+}
+
+.menu-btn .icon {
+  font-size: 1.4em;
+  letter-spacing: 0.08em;
+  vertical-align: middle;
+}
+
+.menu-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  animation: fadeIn 0.25s ease;
+}
+
+@keyframes fadeIn {
+  0% {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ✅ 드롭다운 스타일 */
+.menu-dropdown {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  margin-top: 18px;
+  animation: fadeSlide 0.2s ease;
+}
+
+@keyframes fadeSlide {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.packet-log {
+  margin-top: 18px;
+  padding: 12px 18px;
+  border-radius: 12px;
+  font-size: 0.98rem;
+  line-height: 1.4;
+  background: #24254a;
+  border-left: 5px solid #6780e7;
+  color: #dbdbec;
+}
+
+.packet-log.normal {
+  border-left-color: #50e3c2;
+  background: #213534;
+  color: #b5fdf0;
+}
+
+.packet-log.abnormal {
+  border-left-color: #f55a68;
+  background: #422934;
+  color: #ffd2d8;
 }

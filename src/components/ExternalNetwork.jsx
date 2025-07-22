@@ -9,11 +9,14 @@ import {
 } from "react-simple-maps";
 import { geoCentroid } from "d3-geo";
 import arcsData from "../arcs.js";
+import "../App.css";
+
 const geoUrl = "/2d_world.json";
 
 function ExternalNetwork() {
   const globeRef = useRef();
   const containerRef = useRef(null);
+
   const [show2D, setShow2D] = useState(false);
   const [mapCenter, setMapCenter] = useState([0, 20]);
   const [mapZoom, setMapZoom] = useState(1);
@@ -29,7 +32,7 @@ function ExternalNetwork() {
       .catch(() => {});
   }, []);
 
-  // ResizeObserver로 부모 크기 추적 (완전 반응형)
+  // ResizeObserver로 부모 크기 추적 (반응형)
   useEffect(() => {
     function updateSize() {
       if (containerRef.current) {
@@ -53,7 +56,7 @@ function ExternalNetwork() {
     };
   }, []);
 
-  // 3D→2D 전환
+  // 3D → 2D 전환
   useEffect(() => {
     if (!globeRef.current || show2D) return;
     const controls = globeRef.current.controls();
@@ -64,7 +67,7 @@ function ExternalNetwork() {
     return () => controls.removeEventListener("change", checkZoom);
   }, [show2D]);
 
-  // 2D→3D 돌아올 때 위치·zoom 초기화
+  // 2D → 3D 돌아갈 때 위치·zoom 초기화
   useEffect(() => {
     if (!show2D && globeRef.current) {
       setMapCenter([0, 20]);
@@ -74,50 +77,44 @@ function ExternalNetwork() {
     }
   }, [show2D]);
 
-  // -------- 아래 부분만 추가 --------
-  // 2D 아크 곡선 연결선 렌더 (SVG Path)
+  // --- 2D Arc 곡선 SVG Overlay ---
   function ArcsOverlay({ arcsData, projection }) {
     if (!projection) return null;
     return (
       <g>
-        {
-          arcsData.map((arc, i) => {
-            // 위·경도 필드 자동 추출
-            const startLng = arc.startLng ?? arc.sourceLng ?? arc.longitude1 ?? arc.lng1 ?? 0;
-            const startLat = arc.startLat ?? arc.sourceLat ?? arc.latitude1 ?? arc.lat1 ?? 0;
-            const endLng = arc.endLng ?? arc.targetLng ?? arc.longitude2 ?? arc.lng2 ?? 0;
-            const endLat = arc.endLat ?? arc.targetLat ?? arc.latitude2 ?? arc.lat2 ?? 0;
-            // x/y 변환
-            const [x1, y1] = projection([startLng, startLat]);
-            const [x2, y2] = projection([endLng, endLat]);
-            // 컨트롤 포인트: 위로 살짝 곡선
-            const mx = (x1 + x2) / 2;
-            const my = (y1 + y2) / 2 - Math.max(Math.abs(y2 - y1), Math.abs(x2 - x1)) * 0.3;
-            return (
-              <path
-                key={i}
-                d={`M${x1},${y1} Q${mx},${my} ${x2},${y2}`}
-                stroke={arc.color ? (Array.isArray(arc.color) ? arc.color[0] : arc.color) : "#ff5533"}
-                strokeWidth={2}
-                fill="none"
-                opacity={0.75}
-                strokeDasharray="7,4"
-              >
-                <title>{arc.label}</title>
-              </path>
-            );
-          })
-        }
+        {arcsData.map((arc, i) => {
+          const startLng = arc.startLng ?? arc.sourceLng ?? arc.longitude1 ?? arc.lng1 ?? 0;
+          const startLat = arc.startLat ?? arc.sourceLat ?? arc.latitude1 ?? arc.lat1 ?? 0;
+          const endLng = arc.endLng ?? arc.targetLng ?? arc.longitude2 ?? arc.lng2 ?? 0;
+          const endLat = arc.endLat ?? arc.targetLat ?? arc.latitude2 ?? arc.lat2 ?? 0;
+          const [x1, y1] = projection([startLng, startLat]);
+          const [x2, y2] = projection([endLng, endLat]);
+          const mx = (x1 + x2) / 2;
+          const my = (y1 + y2) / 2 - Math.max(Math.abs(y2 - y1), Math.abs(x2 - x1)) * 0.3;
+          return (
+            <path
+              key={i}
+              d={`M${x1},${y1} Q${mx},${my} ${x2},${y2}`}
+              stroke={arc.color ? (Array.isArray(arc.color) ? arc.color[0] : arc.color) : "#ff5533"}
+              strokeWidth={1}
+              fill="none"
+              opacity={0.5}
+              strokeDasharray="7,4"
+            >
+              <title>{arc.label}</title>
+            </path>
+          );
+        })}
       </g>
     );
   }
-  // -------- (여기까지 추가) --------
 
-  // 2D Map
+  // ---- 2D MAP 출력 ----
   if (show2D) {
     return (
       <div
         ref={containerRef}
+        className="dashboard-main"
         style={{
           width: "100%",
           height: "100%",
@@ -127,18 +124,40 @@ function ExternalNetwork() {
           background: "#181830",
         }}
       >
+        {/* -- 다시 3D로 이동 버튼 -- */}
         <button
-          onClick={() => setShow2D(false)}
-          style={{
-            position: "absolute",
-            left: "90%",
-            top: "5%",
-            transform: "translate(-50%, -50%)",
-            zIndex: "10vw",
-          }}
-        >
-          3D로 이동
-        </button>
+        onClick={() => setShow2D(false)}
+        style={{
+          position: "absolute",
+          left: "90%",
+          top: "5%",
+          transform: "translate(-50%, -50%)",
+          zIndex: 10,
+          padding: "10px 28px",
+          borderRadius: "24px",
+          background: "linear-gradient(90deg, #a259ff 0%, #6e53de 100%)",
+          color: "#fff",
+          border: "2px solid #d1b7ff",
+          fontWeight: "bold",
+          fontSize: "1.13rem",
+          boxShadow: "0 0 0 4px rgba(162,89,255,0.15), 0 4px 16px rgba(132, 80, 255, 0.13)",
+          cursor: "pointer",
+          transition: "background 0.2s, box-shadow 0.2s, border-color 0.2s, transform 0.08s",
+          outline: "none"
+        }}
+        onMouseOver={e => {
+          e.currentTarget.style.background = "linear-gradient(90deg, #c084fc 0%, #a259ff 100%)";
+          e.currentTarget.style.boxShadow = "0 0 0 7px rgba(196, 132, 252, 0.19), 0 6px 24px rgba(148, 80, 255, 0.25)";
+          e.currentTarget.style.borderColor = "#b385fd";
+        }}
+        onMouseOut={e => {
+          e.currentTarget.style.background = "linear-gradient(90deg, #a259ff 0%, #6e53de 100%)";
+          e.currentTarget.style.boxShadow = "0 0 0 4px rgba(162,89,255,0.15), 0 4px 16px rgba(132, 80, 255, 0.13)";
+          e.currentTarget.style.borderColor = "#d1b7ff";
+        }}
+      >
+        🌐 3D로 보기
+      </button>
         <ComposableMap
           key={mapKey}
           projection="geoMercator"
@@ -175,11 +194,12 @@ function ExternalNetwork() {
                       }}
                     />
                   ))}
-                  {/* --- arcsData SVG Path arcs 추가 --- */}
+                  {/* -- 2D 아크 곡선 연결 -- */}
                   <ArcsOverlay arcsData={arcsData} projection={projection} />
                 </>
               )}
             </Geographies>
+            {/* -- 마커 렌더링 -- */}
             {markers.map((m, i) => (
               <Marker
                 key={i}
@@ -206,16 +226,18 @@ function ExternalNetwork() {
     );
   }
 
-  // 3D Globe
+  // ---- 3D GLOBE 출력 ----
   return (
     <div
       ref={containerRef}
+      className="dashboard-main"
       style={{
         width: "100%",
         height: "100%",
         minWidth: 0,
         minHeight: 0,
         position: "relative",
+        background: "#181830",
       }}
     >
       <Globe
@@ -242,6 +264,7 @@ function ExternalNetwork() {
         pointAltitude={0.02}
         globeImageUrl="https://unpkg.com/three-globe/example/img/earth-blue-marble.jpg"
       />
+      {/* -- 2D로 보기 버튼 -- */}
       <button
         onClick={() => setShow2D(true)}
         style={{
@@ -249,11 +272,40 @@ function ExternalNetwork() {
           left: "90%",
           top: "5%",
           transform: "translate(-50%, -50%)",
-          zIndex: "10vw",
+          zIndex: 10,
+          padding: "10px 28px",
+          borderRadius: "24px",
+          background: "linear-gradient(90deg, #a259ff 0%, #6e53de 100%)",
+          color: "#fff",
+          border: "2px solid #d1b7ff",
+          fontWeight: "bold",
+          fontSize: "1.13rem",
+          boxShadow: "0 0 0 4px rgba(162,89,255,0.15), 0 4px 16px rgba(132, 80, 255, 0.13)",
+          cursor: "pointer",
+          transition: "background 0.2s, box-shadow 0.2s, border-color 0.2s, transform 0.08s",
+          outline: "none"
+        }}
+        onMouseOver={e => {
+          e.currentTarget.style.background = "linear-gradient(90deg, #c084fc 0%, #a259ff 100%)";
+          e.currentTarget.style.boxShadow = "0 0 0 7px rgba(196, 132, 252, 0.19), 0 6px 24px rgba(148, 80, 255, 0.25)";
+          e.currentTarget.style.borderColor = "#b385fd";
+        }}
+        onMouseOut={e => {
+          e.currentTarget.style.background = "linear-gradient(90deg, #a259ff 0%, #6e53de 100%)";
+          e.currentTarget.style.boxShadow = "0 0 0 4px rgba(162,89,255,0.15), 0 4px 16px rgba(132, 80, 255, 0.13)";
+          e.currentTarget.style.borderColor = "#d1b7ff";
         }}
       >
-        2D로 보기
+        🌐 2D로 보기
       </button>
+
+      {/* -- 오버레이 패널 (3D에서도 유지) -- */}
+      <div className="dashboard-sub-overlay">
+        <h3 style={{ color: "#fff" }}>📡 오버레이 패널</h3>
+        <p style={{ color: "#ccc" }}>
+          이 영역엔 로그, 그래프 또는 추적 데이터를 표시할 수 있습니다.
+        </p>
+      </div>
     </div>
   );
 }

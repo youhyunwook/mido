@@ -56,6 +56,24 @@ function ExternalNetwork() {
     };
   }, []);
 
+  // 3D 지구본 초기 위치를 한국 중심으로 설정
+  useEffect(() => {
+    if (globeRef.current && !show2D) {
+      // 한국 좌표: 위도 37.5665, 경도 126.9780 (서울)
+      const koreaLat = 37.5665;
+      const koreaLng = 126.9780;
+      
+      // 지구본이 로드된 후 한국 중심으로 회전
+      setTimeout(() => {
+        globeRef.current.pointOfView({
+          lat: koreaLat,
+          lng: koreaLng,
+          altitude: 2
+        }, 1000); // 1초 애니메이션
+      }, 100);
+    }
+  }, [show2D, globeRef.current]);
+
   // 3D → 2D 전환
   useEffect(() => {
     if (!globeRef.current || show2D) return;
@@ -67,13 +85,22 @@ function ExternalNetwork() {
     return () => controls.removeEventListener("change", checkZoom);
   }, [show2D]);
 
-  // 2D → 3D 돌아갈 때 위치·zoom 초기화
+  // 2D → 3D 돌아갈 때 위치·zoom 초기화 (한국 중심으로)
   useEffect(() => {
     if (!show2D && globeRef.current) {
-      setMapCenter([0, 20]);
+      // 2D 지도도 한국 중심으로 설정
+      setMapCenter([126.9780, 37.5665]); // 한국 좌표
       setMapZoom(1);
       setMapKey((k) => k + 1);
-      globeRef.current.pointOfView({ altitude: 2 }, 1000);
+      
+      // 3D 지구본도 한국 중심으로 복귀
+      setTimeout(() => {
+        globeRef.current.pointOfView({
+          lat: 37.5665,
+          lng: 126.9780,
+          altitude: 2
+        }, 1000);
+      }, 100);
     }
   }, [show2D]);
 
@@ -299,13 +326,6 @@ function ExternalNetwork() {
         🌐 2D로 보기
       </button>
 
-      {/* -- 오버레이 패널 (3D에서도 유지) -- */}
-      <div className="dashboard-sub-overlay">
-        <h3 style={{ color: "#fff" }}>📡 오버레이 패널</h3>
-        <p style={{ color: "#ccc" }}>
-          이 영역엔 로그, 그래프 또는 추적 데이터를 표시할 수 있습니다.
-        </p>
-      </div>
     </div>
   );
 }

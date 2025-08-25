@@ -3,14 +3,17 @@ html, body, #root {
   height: 100%;
   margin: 0;
   padding: 0;
+  overflow-x: auto; /* 가로 스크롤 허용 */
 }
 
 .dashboard-layout {
   display: grid;
-  grid-template-columns: 200px 1fr 320px;
+  grid-template-columns: minmax(150px, 200px) 1fr minmax(250px, 320px);
   height: 100vh;
+  min-width: 900px; /* 최소 너비 설정 */
 }
 
+/* 사이드 메뉴 */
 .dashboard-menu {
   grid-column: 1;
   grid-row: 1;
@@ -18,37 +21,39 @@ html, body, #root {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding-top: 32px;
-  gap: 16px;
+  padding: 16px 8px 32px 8px;
+  gap: 12px;
   border-right: 1px solid #2c2c3a;
+  overflow-y: auto;
 }
 
-/* ✅ [수정] 컨테이너의 높이를 100% → 100vh */
+/* 메인 컨테이너 */
 .dashboard-main-container {
   grid-column: 2;
   grid-row: 1;
   position: relative;
   height: 100vh;
+  min-width: 500px;
+  overflow: hidden;
 }
 
-/* ✅ (옵션, JS에서 고정 값 사용시 강력 추천) */
 .dashboard-main {
   width: 100%;
   height: 100%;
   background: #14151a;
   position: relative;
   z-index: 1;
-  min-width: 800px;
-  min-height: 600px;
 }
 
-/* ✅ 내부망 패널(오버레이) */
+/* 내부망 패널 - 더 큰 크기로 조정 */
 .dashboard-sub-overlay {
   position: absolute;
-  right: 1px;
-  bottom: 1px;
-  width: 480px;
-  height: 340px;
+  right: clamp(8px, 1.5vw, 24px);
+  bottom: clamp(8px, 1.5vh, 24px);
+  width: clamp(400px, 45vw, 640px);
+  height: clamp(300px, 35vh, 480px);
+  max-width: calc(100% - 32px);
+  max-height: calc(100% - 100px);
   background: rgba(28, 28, 34, 0.87);
   border-radius: 20px;
   box-shadow: 0 4px 24px 3px rgba(67, 59, 100, 0.22);
@@ -63,38 +68,39 @@ html, body, #root {
   border: 2px solid #241c2c;
 }
 
-/* ✅ 마우스 오버 시 강조 효과 (확대 아님!) */
 .dashboard-sub-overlay:hover {
   box-shadow: 0 12px 40px 10px rgba(0, 0, 0, 0.4);
   z-index: 3;
 }
 
+/* 로그 패널 */
 .dashboard-log {
   grid-column: 3;
   grid-row: 1;
   background: #232333;
-  padding: 24px;
+  padding: 16px;
   color: #fff;
-  font-size: 1.1rem;
+  font-size: clamp(0.9rem, 2vw, 1.1rem);
+  overflow-y: auto;
 }
 
-
-/* ✅ 예쁜 사이드 메뉴 버튼 스타일 (보라 계열) */
+/* 반응형 메뉴 버튼 */
 .menu-btn {
-  min-width: 74px;
-  min-height: 46px;
-  padding: 8px 18px;
+  min-width: clamp(60px, 10vw, 74px);
+  min-height: clamp(40px, 6vh, 46px);
+  padding: clamp(6px, 1vh, 8px) clamp(12px, 2vw, 18px);
   background: linear-gradient(90deg, #a259ff 0%, #6e53de 100%);
   color: #fff;
   border: 2px solid #d1b7ff;
   border-radius: 14px;
   font-weight: 600;
-  font-size: 1.05rem;
+  font-size: clamp(0.9rem, 2vw, 1.05rem);
   letter-spacing: 0.02em;
   box-shadow: 0 2px 8px rgba(131, 70, 200, 0.11);
   cursor: pointer;
   transition: all 0.2s ease;
   outline: none;
+  white-space: nowrap;
 }
 
 .menu-btn:hover,
@@ -106,18 +112,23 @@ html, body, #root {
 }
 
 .menu-btn.main {
-  font-size: 1.3rem;
-  min-width: 50px;
-  min-height: 50px;
+  font-size: clamp(1.1rem, 2.5vw, 1.3rem);
+  min-width: clamp(42px, 8vw, 50px);
+  min-height: clamp(42px, 8vw, 50px);
+  width: clamp(42px, 8vw, 50px);
+  height: clamp(42px, 8vw, 50px);
   border-radius: 50%;
   padding: 0;
   background: linear-gradient(180deg, #a259ff 0%, #6e53de 100%);
   border: 2.5px solid #bfe0fd;
   box-shadow: 0 2px 20px rgba(150, 80, 230, 0.12);
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .menu-btn .icon {
-  font-size: 1.4em;
+  font-size: 1.2em;
   letter-spacing: 0.08em;
   vertical-align: middle;
 }
@@ -126,8 +137,9 @@ html, body, #root {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 16px;
+  gap: clamp(8px, 2vh, 16px);
   animation: fadeIn 0.25s ease;
+  width: 100%;
 }
 
 @keyframes fadeIn {
@@ -141,14 +153,14 @@ html, body, #root {
   }
 }
 
-/* ✅ 드롭다운 스타일 */
 .menu-dropdown {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 12px;
-  margin-top: 18px;
+  gap: clamp(8px, 1.5vh, 12px);
+  margin-top: clamp(12px, 2vh, 18px);
   animation: fadeSlide 0.2s ease;
+  width: 100%;
 }
 
 @keyframes fadeSlide {
@@ -163,10 +175,10 @@ html, body, #root {
 }
 
 .packet-log {
-  margin-top: 18px;
-  padding: 12px 18px;
+  margin-top: clamp(12px, 2vh, 18px);
+  padding: clamp(8px, 1.5vh, 12px) clamp(12px, 2vw, 18px);
   border-radius: 12px;
-  font-size: 0.98rem;
+  font-size: clamp(0.85rem, 1.8vw, 0.98rem);
   line-height: 1.4;
   background: #24254a;
   border-left: 5px solid #6780e7;
@@ -183,4 +195,74 @@ html, body, #root {
   border-left-color: #f55a68;
   background: #422934;
   color: #ffd2d8;
+}
+
+/* 태블릿 크기 (768px 이하) */
+@media (max-width: 768px) {
+  .dashboard-layout {
+    grid-template-columns: minmax(120px, 150px) 1fr minmax(200px, 250px);
+    min-width: 600px;
+  }
+  
+  .dashboard-menu {
+    padding: 12px 4px 24px 4px;
+    gap: 8px;
+  }
+  
+  .dashboard-log {
+    padding: 12px;
+  }
+  
+  .dashboard-sub-overlay {
+    right: clamp(4px, 1vw, 12px);
+    bottom: clamp(4px, 1vh, 12px);
+    width: clamp(320px, 50vw, 480px);
+    height: clamp(240px, 40vh, 360px);
+    max-width: calc(100% - 24px);
+    max-height: calc(100% - 80px);
+    border-radius: 16px;
+  }
+}
+
+/* 모바일 크기 (480px 이하) */
+@media (max-width: 480px) {
+  .dashboard-layout {
+    grid-template-columns: 100px 1fr 180px;
+    min-width: 400px;
+  }
+  
+  .dashboard-menu {
+    padding: 8px 2px 16px 2px;
+    gap: 6px;
+  }
+  
+  .dashboard-log {
+    padding: 8px;
+    font-size: 0.8rem;
+  }
+  
+  .dashboard-sub-overlay {
+    right: clamp(2px, 0.5vw, 6px);
+    bottom: clamp(2px, 0.5vh, 6px);
+    width: clamp(280px, 55vw, 360px);
+    height: clamp(200px, 45vh, 280px);
+    max-width: calc(100% - 12px);
+    max-height: calc(100% - 50px);
+    border-radius: 12px;
+  }
+  
+  .menu-btn {
+    font-size: 0.8rem;
+    min-width: 50px;
+    min-height: 32px;
+    padding: 4px 8px;
+  }
+  
+  .menu-btn.main {
+    width: 36px;
+    height: 36px;
+    min-width: 36px;
+    min-height: 36px;
+    font-size: 1rem;
+  }
 }

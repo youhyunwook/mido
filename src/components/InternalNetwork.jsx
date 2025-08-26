@@ -3,38 +3,52 @@ import ForceGraph3D from "react-force-graph-3d";
 import * as THREE from "three";
 import { createLayeredGridGraph } from "./GraphUtil";
 
-// 더 깔끔한 레이어 설정
 const layers = [
-  { name: "Device", count: 6 },    // 엔드포인트 장치들
-  { name: "Access", count: 3 },    // 액세스 스위치
-  { name: "Distrib", count: 2 },   // 분산 계층
-  { name: "Core", count: 1 },      // 코어 스위치
-  { name: "DMZ", count: 3 },       // DMZ 영역
-  { name: "Server", count: 4 }     // 서버 팜
+  { name: "Device", count: 6 },
+  { name: "Access", count: 3 },
+  { name: "Distrib", count: 2 },
+  { name: "Core", count: 1 },
+  { name: "DMZ", count: 3 },
+  { name: "Server", count: 4 }
 ];
 
-const layerRadii = [45, 25, 18, 8, 22, 35];
-const layerGap = 20;
+const layerRadii = [55, 30, 22, 10, 28, 40];
+const layerGap = 25;
+const nodeColors = ["#00d4ff", "#4ade80", "#f59e0b", "#ef4444", "#a855f7", "#06b6d4"];
 
-// 더 세련된 색상 팔레트 (네트워크 토폴로지용)
-const nodeColors = [
-  "#00d4ff", // Device - 시안 블루
-  "#4ade80", // Access - 그린
-  "#f59e0b", // Distrib - 앰버
-  "#ef4444", // Core - 레드 (중요)
-  "#a855f7", // DMZ - 퍼플
-  "#06b6d4"  // Server - 티얼
-];
-
-// 링크의 고유 키 생성
 const getLinkKey = l => {
   const getName = n => (typeof n === "object" ? n.name || n.id : n);
-  return [getName(l.source), getName(l.target)].sort().join('←→');
+  return [getName(l.source), getName(l.target)].sort().join("←→");
 };
+
+// 박스 안에서 너무 꽉 차 보이지 않도록 여백(padding) 살짝 줌
+const FIT_PADDING = 36;
 
 export default function InternalNetwork() {
   const fgRef = useRef();
-  
+  const hostRef = useRef(null);
+
+  const [size, setSize] = useState({ width: 1, height: 1 });
+
+  // 부모 박스 크기 추적
+  useEffect(() => {
+    const el = hostRef.current;
+    if (!el) return;
+    const update = () => {
+      const { clientWidth, clientHeight } = el;
+      setSize({ width: Math.max(1, clientWidth), height: Math.max(1, clientHeight) });
+    };
+    update();
+
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    window.addEventListener("resize", update);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", update);
+    };
+  }, []);
+
   const [graphData] = useState(() => {
     const { nodes = [], links = [] } = createLayeredGridGraph({
       layers,
@@ -42,162 +56,95 @@ export default function InternalNetwork() {
       layerRadius: layerRadii
     }) ?? {};
 
-    // 추가 연결 생성 (더 현실적인 네트워크 구조)
-    // Core와 DMZ 연결
     links.push({ source: "Core-1", target: "DMZ-1" });
     links.push({ source: "Core-1", target: "DMZ-2" });
-    
-    // DMZ와 Server 연결
-    for (let i = 1; i <= 3; i++) {
-      if (i <= 2) links.push({ source: `DMZ-${i}`, target: `Server-${i}` });
-    }
+    links.push({ source: "DMZ-1", target: "Server-1" });
+    links.push({ source: "DMZ-2", target: "Server-2" });
     links.push({ source: "DMZ-3", target: "Server-3" });
     links.push({ source: "DMZ-3", target: "Server-4" });
 
-    // 그래프를 중심으로 이동
-    const center = nodes.reduce(
-      (acc, n) => ({ x: acc.x + n.x, y: acc.y + n.y, z: acc.z + n.z }),
-      { x: 0, y: 0, z: 0 }
-    );
-    center.x /= nodes.length;
-    center.y /= nodes.length; 
-    center.z /= nodes.length;
-
-    nodes.forEach(n => {
-      n.x -= center.x;
-      n.y -= center.y;
-      n.z -= center.z;
-    });
+    // 중심 정렬
+    if (nodes.length) {
+      const center = nodes.reduce(
+        (acc, n) => ({ x: acc.x + n.x, y: acc.y + n.y, z: acc.z + n.z }),
+        { x: 0, y: 0, z: 0 }
+      );
+      center.x /= nodes.length; center.y /= nodes.length; center.z /= nodes.length;
+      nodes.forEach(n => { n.x -= center.x; n.y -= center.y; n.z -= center.z; });
+    }
 
     return { nodes, links };
   });
 
-  const [highlighted, setHighlighted] = useState({
-    nodes: new Set(),
-    links: new Set(),
-    dimmedNodes: new Set()
-  });
-  
-  const [hasInitialized, setHasInitialized] = useState(false);
+  // 렌더러/컨트롤 안전값
+  useEffect(() => {
+    if (!fgRef.current) return;
+    const renderer = fgRef.current.renderer();
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+
+    const controls = fgRef.current.controls?.();
+    if (controls) {
+      controls.enableDamping = true;
+      controls.dampingFactor = 0.05;
+      controls.minDistance = 2;
+      controls.maxDistance = 8000;
+    }
+  }, []);
+
+  // 박스 크기나 데이터 변동 시마다 중앙 고정 + 전체가 딱 맞도록 자동 맞춤
+  const fitToBox = (duration = 300) => {
+    const fg = fgRef.current;
+    if (!fg) return;
+    try {
+      fg.zoomToFit(duration, FIT_PADDING);
+    } catch {}
+  };
+
+  useEffect(() => { fitToBox(0); }, []); // 첫 렌더
+  useEffect(() => { fitToBox(250); }, [size.width, size.height]); // 박스 리사이즈
+  useEffect(() => { fitToBox(250); }, [graphData.nodes.length, graphData.links.length]); // 데이터 변동
+  // 엔진 안정 후에도 보정
+  const [engineStopped, setEngineStopped] = useState(false);
+
+  const [highlighted, setHighlighted] = useState({ nodes: new Set(), links: new Set(), dimmedNodes: new Set() });
   const [selectedNode, setSelectedNode] = useState(null);
   const [hoverNode, setHoverNode] = useState(null);
 
-  // 고해상도 렌더링 및 카메라 설정
-  useEffect(() => {
-    if (fgRef.current) {
-      const renderer = fgRef.current.renderer();
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-      renderer.shadowMap.enabled = true;
-      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-      
-      // 카메라 컨트롤 설정 개선
-      const controls = fgRef.current.controls();
-      if (controls) {
-        controls.enableDamping = true;
-        controls.dampingFactor = 0.05;
-        controls.minDistance = 50;
-        controls.maxDistance = 1000;
-        controls.maxPolarAngle = Math.PI;
-        controls.minPolarAngle = 0;
-        
-        // 부드러운 줌 설정
-        controls.zoomSpeed = 0.5;
-        controls.panSpeed = 0.8;
-        controls.rotateSpeed = 0.5;
-      }
-      
-      // 부드러운 조명 설정
-      const scene = fgRef.current.scene();
-      const ambientLight = new THREE.AmbientLight(0x404040, 0.6);
-      const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-      directionalLight.position.set(50, 100, 50);
-      directionalLight.castShadow = true;
-      scene.add(ambientLight);
-      scene.add(directionalLight);
-    }
-
-    const handleResize = () => {
-      if (fgRef.current) {
-        fgRef.current.renderer().setPixelRatio(Math.min(window.devicePixelRatio, 2));
-      }
-    };
-
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
-  }, []);
-
-  // 노드 클릭 핸들러 - 연결된 모든 노드 강조
   const handleNodeClick = (node, event) => {
     event.stopPropagation();
-    
     const getName = n => (typeof n === "object" ? n.name || n.id : n);
-    
-    // 그래프 인접 리스트 생성
     const adjacency = {};
-    graphData.nodes.forEach(n => { 
-      adjacency[n.name] = new Set(); 
-    });
-    
+    graphData.nodes.forEach(n => { adjacency[n.name] = new Set(); });
     graphData.links.forEach(l => {
-      const source = getName(l.source);
-      const target = getName(l.target);
-      adjacency[source].add(target);
-      adjacency[target].add(source);
+      const s = getName(l.source); const t = getName(l.target);
+      adjacency[s].add(t); adjacency[t].add(s);
     });
 
-    // BFS로 연결된 모든 노드 찾기
     const connected = new Set([node.name]);
     const queue = [node.name];
-    
-    while (queue.length > 0) {
-      const current = queue.shift();
-      adjacency[current].forEach(neighbor => {
-        if (!connected.has(neighbor)) {
-          connected.add(neighbor);
-          queue.push(neighbor);
-        }
-      });
+    while (queue.length) {
+      const cur = queue.shift();
+      adjacency[cur].forEach(nb => { if (!connected.has(nb)) { connected.add(nb); queue.push(nb); } });
     }
 
-    // 강조할 링크 찾기
     const highlightLinks = new Set();
     graphData.links.forEach(l => {
-      const source = getName(l.source);
-      const target = getName(l.target);
-      if (connected.has(source) && connected.has(target)) {
-        highlightLinks.add(getLinkKey(l));
-      }
+      const s = getName(l.source); const t = getName(l.target);
+      if (connected.has(s) && connected.has(t)) highlightLinks.add(getLinkKey(l));
     });
 
-    const dimmedNodes = new Set(
-      graphData.nodes
-        .filter(n => !connected.has(n.name))
-        .map(n => n.name)
-    );
-
-    setHighlighted({
-      nodes: connected,
-      links: highlightLinks,
-      dimmedNodes
-    });
-    
+    const dimmedNodes = new Set(graphData.nodes.filter(n => !connected.has(n.name)).map(n => n.name));
+    setHighlighted({ nodes: connected, links: highlightLinks, dimmedNodes });
     setSelectedNode(node);
   };
 
   const handleBackgroundClick = () => {
-    setHighlighted({ 
-      nodes: new Set(), 
-      links: new Set(), 
-      dimmedNodes: new Set() 
-    });
+    setHighlighted({ nodes: new Set(), links: new Set(), dimmedNodes: new Set() });
     setSelectedNode(null);
   };
 
-  const handleNodeHover = (node) => {
-    setHoverNode(node);
-  };
+  const handleNodeHover = (node) => { setHoverNode(node); };
 
-  // 향상된 노드 렌더링
   const nodeThreeObject = useMemo(() => {
     return node => {
       const layerIndex = layers.findIndex(l => l.name === node.layer);
@@ -205,109 +152,73 @@ export default function InternalNetwork() {
       const isDimmed = highlighted.dimmedNodes.has(node.name);
       const isSelected = selectedNode?.name === node.name;
       const isHovered = hoverNode?.name === node.name;
-      
+
       const baseColor = nodeColors[layerIndex] || "#64748b";
       const opacity = isDimmed ? 0.2 : 1;
-      const scale = isSelected ? 1.4 : isHovered ? 1.2 : 1;
-      const radius = (isSelected ? 4.5 : 3.5) * scale;
+      const scale = isSelected ? 1.2 : isHovered ? 1.08 : 1;
+      const radius = (isSelected ? 3.8 : 3.2) * scale;
 
-      // 메인 구체
       const geometry = new THREE.SphereGeometry(radius, 20, 20);
-      const material = new THREE.MeshPhongMaterial({ 
-        color: baseColor,
-        transparent: opacity < 1,
-        opacity,
-        shininess: 100
-      });
-      
+      const material = new THREE.MeshPhongMaterial({ color: baseColor, transparent: opacity < 1, opacity, shininess: 100 });
       const sphere = new THREE.Mesh(geometry, material);
-      sphere.castShadow = true;
-      sphere.receiveShadow = true;
+      sphere.castShadow = true; sphere.receiveShadow = true;
 
-      // 선택/강조 시 외곽 링
       if (isSelected || isHighlighted) {
-        const ringGeometry = new THREE.RingGeometry(radius * 1.2, radius * 1.4, 32);
-        const ringMaterial = new THREE.MeshBasicMaterial({
-          color: isSelected ? "#ffffff" : baseColor,
-          transparent: true,
-          opacity: isSelected ? 0.8 : 0.5,
-          side: THREE.DoubleSide
-        });
+        const ringGeometry = new THREE.RingGeometry(radius * 1.12, radius * 1.26, 32);
+        const ringMaterial = new THREE.MeshBasicMaterial({ color: isSelected ? "#ffffff" : baseColor, transparent: true, opacity: isSelected ? 0.75 : 0.45, side: THREE.DoubleSide });
         const ring = new THREE.Mesh(ringGeometry, ringMaterial);
         sphere.add(ring);
       }
 
-      // 깔끔한 라벨
+      // 라벨
       const canvas = document.createElement("canvas");
       const ctx = canvas.getContext("2d");
       const text = node.name.replace('-', ' ');
-      
-      ctx.font = "bold 14px -apple-system, BlinkMacSystemFont, sans-serif";
+      ctx.font = "bold 12px sans-serif";
       const metrics = ctx.measureText(text);
-      const padding = 8;
-      
-      canvas.width = metrics.width + padding * 2;
-      canvas.height = 24;
-      
-      // 라벨 배경
+      const padding = 6;
+      canvas.width = Math.ceil(metrics.width) + padding * 2;
+      canvas.height = 20;
       ctx.fillStyle = isDimmed ? "rgba(0,0,0,0.3)" : "rgba(0,0,0,0.7)";
-      ctx.roundRect(0, 0, canvas.width, canvas.height, 4);
-      ctx.fill();
-      
-      // 라벨 텍스트
-      ctx.font = "bold 14px -apple-system, BlinkMacSystemFont, sans-serif";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.fillStyle = isDimmed ? "rgba(255,255,255,0.4)" : "#ffffff";
-      ctx.textAlign = "center";
-      ctx.fillText(text, canvas.width / 2, 16);
+      ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillText(text, canvas.width / 2, canvas.height / 2);
 
       const texture = new THREE.CanvasTexture(canvas);
       texture.generateMipmaps = false;
       texture.minFilter = THREE.LinearFilter;
-      
-      const spriteMaterial = new THREE.SpriteMaterial({ 
-        map: texture,
-        transparent: true,
-        opacity: opacity
-      });
-      
+      const spriteMaterial = new THREE.SpriteMaterial({ map: texture, transparent: true, opacity });
       const sprite = new THREE.Sprite(spriteMaterial);
-      sprite.scale.set(canvas.width / 8, canvas.height / 8, 1);
-      sprite.position.set(0, radius + 8, 0);
+      sprite.scale.set(canvas.width / 10, canvas.height / 10, 1);
+      sprite.position.set(0, radius + 6, 0);
 
       const group = new THREE.Group();
-      group.add(sphere);
-      group.add(sprite);
-      
+      group.add(sphere); group.add(sprite);
       return group;
     };
   }, [highlighted, selectedNode, hoverNode]);
 
-  // 링크 스타일링
-  const linkWidth = (link) => {
-    const key = getLinkKey(link);
-    if (highlighted.links.has(key)) return 3;
-    if (highlighted.links.size > 0) return 0.5;
-    return 1.5;
-  };
-
-  const linkColor = (link) => {
-    const key = getLinkKey(link);
-    if (highlighted.links.has(key)) return "#00ff88";
-    if (highlighted.links.size > 0) return "#334155";
-    return "#64748b";
-  };
-
-  const linkOpacity = (link) => {
-    const key = getLinkKey(link);
-    if (highlighted.links.size === 0) return 0.8;
-    return highlighted.links.has(key) ? 1 : 0.2;
-  };
+  const linkWidth = link => highlighted.links.has(getLinkKey(link)) ? 3 : highlighted.links.size > 0 ? 0.5 : 1.5;
+  const linkColor = link => highlighted.links.has(getLinkKey(link)) ? "#00ff88" : highlighted.links.size > 0 ? "#334155" : "#64748b";
+  const linkOpacity = link => highlighted.links.size === 0 ? 0.8 : highlighted.links.has(getLinkKey(link)) ? 1 : 0.2;
 
   return (
-    <>
+    // 부모 박스 크기를 그대로 따라감 (서브 대시보드 슬롯에 딱 맞춤)
+    <div
+      ref={hostRef}
+      style={{
+        width: "100%",
+        height: "100%",
+        position: "relative",
+        overflow: "hidden"
+      }}
+    >
       <ForceGraph3D
         ref={fgRef}
         graphData={graphData}
+        width={size.width}
+        height={size.height}
         nodeThreeObject={nodeThreeObject}
         linkWidth={linkWidth}
         linkColor={linkColor}
@@ -320,82 +231,44 @@ export default function InternalNetwork() {
         onNodeClick={handleNodeClick}
         onNodeHover={handleNodeHover}
         onBackgroundClick={handleBackgroundClick}
-        cooldownTicks={150}
-        d3AlphaDecay={0.01}
-        d3VelocityDecay={0.3}
-        onEngineStop={() => {
-          // 초기 로딩 시에만 한 번 줌 조정
-          if (!hasInitialized && fgRef.current) {
-            setTimeout(() => {
-              fgRef.current.zoomToFit(400, 20);
-              setHasInitialized(true);
-            }, 100);
-          }
-        }}
         controlType="orbit"
         backgroundColor="rgba(0,0,0,0)"
-        cameraPosition={{ x: 0, y: 0, z: 300 }}
         enablePointerInteraction={true}
-        width={window.innerWidth}
-        height={window.innerHeight}
+        onEngineStop={() => {
+          if (!engineStopped) {
+            setEngineStopped(true);
+            fitToBox(220); // 물리 안정 후 최종 보정
+          }
+        }}
       />
-      
+
       {/* 범례 */}
       <div style={{
-        position: "absolute",
-        top: "10px",
-        right: "10px",
-        background: "rgba(15,23,42,0.98)",
-        padding: "8px",
-        borderRadius: "8px",
-        fontSize: "10px",
-        color: "#e2e8f0",
-        zIndex: 10,
-        border: "1px solid rgba(148,163,184,0.2)",
-        boxShadow: "0 4px 12px rgba(0,0,0,0.3)"
+        position: "absolute", top: 8, right: 8, background: "rgba(15,23,42,0.98)",
+        padding: 8, borderRadius: 8, fontSize: 10, color: "#e2e8f0", zIndex: 10,
+        border: "1px solid rgba(148,163,184,0.2)", boxShadow: "0 4px 12px rgba(0,0,0,0.3)"
       }}>
         {layers.map((layer, i) => (
-          <div key={layer.name} style={{
-            display: "flex",
-            alignItems: "center",
-            marginBottom: "2px"
-          }}>
-            <div style={{
-              width: "8px",
-              height: "8px",
-              borderRadius: "50%",
-              backgroundColor: nodeColors[i],
-              marginRight: "6px"
-            }} />
+          <div key={layer.name} style={{ display: "flex", alignItems: "center", marginBottom: 2 }}>
+            <div style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: nodeColors[i], marginRight: 6 }} />
             {layer.name}
           </div>
         ))}
       </div>
 
-      {/* 선택된 노드 정보 */}
+      {/* 선택 정보 */}
       {selectedNode && (
         <div style={{
-          position: "absolute",
-          bottom: "10px",
-          left: "10px",
+          position: "absolute", bottom: 8, left: 8,
           background: "linear-gradient(135deg, rgba(15,23,42,0.98) 0%, rgba(30,41,59,0.95) 100%)",
-          color: "#e2e8f0",
-          padding: "10px 14px",
-          borderRadius: "10px",
-          border: "1px solid rgba(148,163,184,0.3)",
-          fontSize: "12px",
-          fontWeight: "500",
-          zIndex: 10,
-          boxShadow: "0 4px 12px rgba(0,0,0,0.4)"
+          color: "#e2e8f0", padding: "10px 14px", borderRadius: 10,
+          border: "1px solid rgba(148,163,184,0.3)", fontSize: 12,
+          fontWeight: 500, zIndex: 10, boxShadow: "0 4px 12px rgba(0,0,0,0.4)"
         }}>
-          <div style={{ fontWeight: "bold", marginBottom: "4px" }}>
-            📡 {selectedNode.name}
-          </div>
-          <div style={{ color: "#94a3b8", fontSize: "10px" }}>
-            Layer: {selectedNode.layer}
-          </div>
+          <div style={{ fontWeight: "bold", marginBottom: 4 }}>📡 {selectedNode.name}</div>
+          <div style={{ color: "#94a3b8", fontSize: 10 }}>Layer: {selectedNode.layer}</div>
         </div>
       )}
-    </>
+    </div>
   );
 }

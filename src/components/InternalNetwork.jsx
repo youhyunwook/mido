@@ -22,7 +22,9 @@ const getLinkKey = l => {
 };
 
 // 박스 안에서 너무 꽉 차 보이지 않도록 여백(padding) 살짝 줌
-const FIT_PADDING = 36;
+const FIT_PADDING = 0;
+const UI_SCALE = 1.6; // 전체 UI 스케일 업
+const POST_FIT_ZOOM_MULTIPLIER = 0.82; // zoomToFit 이후 카메라를 더 가깝게
 
 export default function InternalNetwork() {
   const fgRef = useRef();
@@ -89,6 +91,13 @@ export default function InternalNetwork() {
       controls.minDistance = 2;
       controls.maxDistance = 8000;
     }
+
+    // 카메라 FOV를 조금 좁혀서 더 크게 보이도록
+    const camera = fgRef.current.camera?.();
+    if (camera) {
+      camera.fov = 50; // 기본 60 → 50
+      camera.updateProjectionMatrix();
+    }
   }, []);
 
   // 박스 크기나 데이터 변동 시마다 중앙 고정 + 전체가 딱 맞도록 자동 맞춤
@@ -97,6 +106,16 @@ export default function InternalNetwork() {
     if (!fg) return;
     try {
       fg.zoomToFit(duration, FIT_PADDING);
+      // zoomToFit 후 카메라를 타겟 쪽으로 조금 더 당겨서 더 크게 보이게 함
+      const camera = fg.camera?.();
+      const controls = fg.controls?.();
+      if (camera && controls && controls.target) {
+        const toTarget = new THREE.Vector3().copy(camera.position).sub(controls.target);
+        toTarget.multiplyScalar(POST_FIT_ZOOM_MULTIPLIER);
+        camera.position.copy(new THREE.Vector3().copy(controls.target).add(toTarget));
+        camera.updateProjectionMatrix();
+        controls.update?.();
+      }
     } catch {}
   };
 
@@ -155,7 +174,7 @@ export default function InternalNetwork() {
 
       const baseColor = nodeColors[layerIndex] || "#64748b";
       const opacity = isDimmed ? 0.2 : 1;
-      const scale = isSelected ? 1.2 : isHovered ? 1.08 : 1;
+      const scale = (isSelected ? 1.2 : isHovered ? 1.08 : 1) * UI_SCALE;
       const radius = (isSelected ? 3.8 : 3.2) * scale;
 
       const geometry = new THREE.SphereGeometry(radius, 20, 20);
@@ -190,7 +209,8 @@ export default function InternalNetwork() {
       texture.minFilter = THREE.LinearFilter;
       const spriteMaterial = new THREE.SpriteMaterial({ map: texture, transparent: true, opacity });
       const sprite = new THREE.Sprite(spriteMaterial);
-      sprite.scale.set(canvas.width / 10, canvas.height / 10, 1);
+      const labelDivisor = 10 / UI_SCALE; // 스케일에 맞춰 라벨 크기도 키움
+      sprite.scale.set(canvas.width / labelDivisor, canvas.height / labelDivisor, 1);
       sprite.position.set(0, radius + 6, 0);
 
       const group = new THREE.Group();
@@ -199,7 +219,10 @@ export default function InternalNetwork() {
     };
   }, [highlighted, selectedNode, hoverNode]);
 
-  const linkWidth = link => highlighted.links.has(getLinkKey(link)) ? 3 : highlighted.links.size > 0 ? 0.5 : 1.5;
+  const linkWidth = link => {
+    const base = highlighted.links.has(getLinkKey(link)) ? 3 : highlighted.links.size > 0 ? 0.6 : 1.8;
+    return base * (UI_SCALE / 1.0);
+  };
   const linkColor = link => highlighted.links.has(getLinkKey(link)) ? "#00ff88" : highlighted.links.size > 0 ? "#334155" : "#64748b";
   const linkOpacity = link => highlighted.links.size === 0 ? 0.8 : highlighted.links.has(getLinkKey(link)) ? 1 : 0.2;
 
@@ -223,9 +246,9 @@ export default function InternalNetwork() {
         linkWidth={linkWidth}
         linkColor={linkColor}
         linkOpacity={linkOpacity}
-        linkDirectionalParticles={2}
+        linkDirectionalParticles={Math.round(2 * UI_SCALE)}
         linkDirectionalParticleSpeed={0.003}
-        linkDirectionalParticleWidth={1.5}
+        linkDirectionalParticleWidth={1.5 * (UI_SCALE / 1.0)}
         showNavInfo={false}
         enableNodeDrag={false}
         onNodeClick={handleNodeClick}
@@ -237,7 +260,7 @@ export default function InternalNetwork() {
         onEngineStop={() => {
           if (!engineStopped) {
             setEngineStopped(true);
-            fitToBox(220); // 물리 안정 후 최종 보정
+            fitToBox(220); // 물리 안정 후 최종 보정 + 추가 줌 인
           }
         }}
       />

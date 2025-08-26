@@ -119,9 +119,17 @@ export default function InternalNetwork() {
     } catch {}
   };
 
-  useEffect(() => { fitToBox(0); }, []); // 첫 렌더
-  useEffect(() => { fitToBox(250); }, [size.width, size.height]); // 박스 리사이즈
-  useEffect(() => { fitToBox(250); }, [graphData.nodes.length, graphData.links.length]); // 데이터 변동
+  const [cameraLocked, setCameraLocked] = useState(false);
+  const [hasInitialFit, setHasInitialFit] = useState(false);
+  useEffect(() => {
+    if (!hasInitialFit) {
+      fitToBox(0); // 첫 렌더에서만 맞춤
+      setCameraLocked(true); // 바로 잠가서 크기 유지
+      setHasInitialFit(true);
+    }
+  }, [hasInitialFit]);
+  useEffect(() => { if (!cameraLocked) fitToBox(250); }, [size.width, size.height, cameraLocked]); // 박스 리사이즈
+  useEffect(() => { if (!cameraLocked) fitToBox(250); }, [graphData.nodes.length, graphData.links.length, cameraLocked]); // 데이터 변동
   // 엔진 안정 후에도 보정
   const [engineStopped, setEngineStopped] = useState(false);
 
@@ -260,7 +268,12 @@ export default function InternalNetwork() {
         onEngineStop={() => {
           if (!engineStopped) {
             setEngineStopped(true);
-            fitToBox(220); // 물리 안정 후 최종 보정 + 추가 줌 인
+            // 초기 맞춤이 이미 적용되었으면 추가 보정하지 않음
+            if (!hasInitialFit) {
+              fitToBox(220);
+              setCameraLocked(true);
+              setHasInitialFit(true);
+            }
           }
         }}
       />

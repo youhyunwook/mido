@@ -56,6 +56,7 @@ const arcsData = [
   { startLat: 35.6895, startLng: 139.6917, endLat: 37.5665, endLng: 126.9780, color: ["#89f889ff", "#89f889ff"], label: "일본(도 쿄)→한국 응답" },
   { startLat: 39.0392, startLng: 125.7625, endLat: 37.5665, endLng: 126.9780, color: ["#ff6262", "#b00000"], label: "북한→한국 데이터 송신" },
   {startLat: 41.8023, startLng: 129.7959, endLat: 37.5665, endLng: 126.9780, color: ["#ff6262", "#b00000"], label: "북한(함경북도)→한국 데이터 송신" },
+  { startLat: 40.1000, startLng: 124.4000, endLat: 37.5665, endLng: 126.9780, color: ["#ff6262", "#b00000"], label: "북한(신의주)→한국 데이터 송신" },
   { startLat: 39.9042, startLng: 116.4074, endLat: 37.5665, endLng: 126.9780, color: ["#ff6262", "#b00000"], label: "중국(베이징)→한국 데이터 송신" },
   { startLat: 31.2304, startLng: 121.4737, endLat: 37.5665, endLng: 126.9780, color: ["#ff6262", "#b00000"], label: "중국(상하이)→한국 데이터 송신" },
   { startLat: 45.7567, startLng: 126.6424, endLat: 37.5665, endLng: 126.9780, color: ["#ff6262", "#b00000"], label: "중국(하얼빈)→한국 데이터 송신" },

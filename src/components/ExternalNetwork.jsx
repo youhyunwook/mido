@@ -23,6 +23,7 @@ function ExternalNetwork() {
   const [mapKey, setMapKey] = useState(0);
   const [markers, setMarkers] = useState([]);
   const [dimensions, setDimensions] = useState({ width: 600, height: 600 });
+  const rotatePausedRef = useRef(false);
 
   // 아크 양끝 포인트(3D에서 흰색 원으로 표시) + 기존 마커 병합
   const pointsWithArcEndpoints = useMemo(() => {
@@ -161,7 +162,7 @@ function ExternalNetwork() {
         if (scene && scene.rotation) {
           let rotationSpeed = 0.001;
           const animate = () => {
-            if (!show2D && scene) {
+            if (!show2D && scene && !rotatePausedRef.current) {
               scene.rotation.y += rotationSpeed;
             }
             requestAnimationFrame(animate);
@@ -171,7 +172,28 @@ function ExternalNetwork() {
       }
     }, 500);
 
-    return () => clearTimeout(timer);
+    // 꾹 누르면 즉시 회전 정지/해제 (글로브 캔버스에 직접 바인딩)
+    const canvas = globe.renderer?.().domElement || containerRef.current;
+    const handleDown = () => { rotatePausedRef.current = true; };
+    const handleUp = () => { rotatePausedRef.current = false; };
+    if (canvas) {
+      canvas.addEventListener('mousedown', handleDown);
+      window.addEventListener('mouseup', handleUp);
+      canvas.addEventListener('touchstart', handleDown, { passive: true });
+      window.addEventListener('touchend', handleUp, { passive: true });
+      window.addEventListener('touchcancel', handleUp, { passive: true });
+    }
+
+    return () => {
+      clearTimeout(timer);
+      if (canvas) {
+        canvas.removeEventListener('mousedown', handleDown);
+        window.removeEventListener('mouseup', handleUp);
+        canvas.removeEventListener('touchstart', handleDown);
+        window.removeEventListener('touchend', handleUp);
+        window.removeEventListener('touchcancel', handleUp);
+      }
+    };
   }, [show2D]);
 
   // --- 2D Arc 곡선 SVG Overlay ---

@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(/C:\\Users\\dshin\\Desktop\\미래도전\\Mido_Visualization/**)",
+      "Read(/C:\\Users\\dshin\\Desktop\\미래도전\\Mido_Visualization\\src/**)",
+      "Read(/C:\\Users\\dshin\\Desktop\\미래도전\\Mido_Visualization\\src/**)",
+      "Read(/C:\\Users\\dshin\\Desktop\\미래도전\\Mido_Visualization\\src\\components/**)",
+      "Read(/C:\\Users\\dshin\\Desktop\\미래도전\\Mido_Visualization\\src\\components/**)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

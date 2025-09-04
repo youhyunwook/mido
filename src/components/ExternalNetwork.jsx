@@ -24,6 +24,7 @@ function ExternalNetwork() {
   const [markers, setMarkers] = useState([]);
   const [dimensions, setDimensions] = useState({ width: 600, height: 600 });
   const rotatePausedRef = useRef(false);
+  const zoomPausedRef = useRef(false);
 
   // 아크 양끝 포인트(3D에서 흰색 원으로 표시) + 기존 마커 병합
   const pointsWithArcEndpoints = useMemo(() => {
@@ -147,6 +148,18 @@ function ExternalNetwork() {
           controls.minDistance = 120; // 더 가까이 확대 허용
           controls.maxDistance = 3000; // 멀리 축소 허용
           controls.enablePan = false; // 패닝으로 화면 밖으로 나가는 것 방지
+          
+          // 줌 레벨 모니터링을 위한 이벤트 리스너 추가
+          const checkZoomLevel = () => {
+            const camera = globe.camera?.();
+            if (camera) {
+              // 카메라 거리가 300 이하일 때 회전 정지 (확대 상태)
+              const distance = camera.position.distanceTo(controls.target);
+              zoomPausedRef.current = distance < 300;
+            }
+          };
+          
+          controls.addEventListener('change', checkZoomLevel);
           controls.update?.();
         }
         const camera = globe.camera?.();
@@ -162,7 +175,7 @@ function ExternalNetwork() {
         if (scene && scene.rotation) {
           let rotationSpeed = 0.001;
           const animate = () => {
-            if (!show2D && scene && !rotatePausedRef.current) {
+            if (!show2D && scene && !rotatePausedRef.current && !zoomPausedRef.current) {
               scene.rotation.y += rotationSpeed;
             }
             requestAnimationFrame(animate);

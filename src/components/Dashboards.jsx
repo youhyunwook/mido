@@ -1,23 +1,56 @@
-import React from "react";
+import React, { useState } from "react";
 import ExternalNetwork from "./ExternalNetwork";
 import InternalNetwork from "./InternalNetwork";
 import DashboardMenu from "./DashboardMenu";
+import NetworkTopology from "./network_topology.jsx";
+import TestPage from "./TestPage.jsx";
+import Cyber3Layer from "./cyber_3layer.jsx";
+
 import "../App.css";
 
 function Dashboards() {
+  const [activeView, setActiveView] = useState('Default');
+  const [inspectorContent, setInspectorContent] = useState(null);
+  const [showTestPage, setShowTestPage] = useState(false);
+
+  const handleMenuSelect = (view) => {
+    setActiveView(view);
+    setShowTestPage(false); 
+    if (view !== '메뉴2' && view !== '메뉴3') {
+      setInspectorContent(null);
+    }
+  };
+
+  const renderActiveView = () => {
+    if (showTestPage) {
+      return <TestPage />;
+    }
+    switch (activeView) {
+      case '메뉴2':
+        return <NetworkTopology onInspectorChange={setInspectorContent} onTestPageRequest={() => setShowTestPage(true)} />;
+      case '메뉴3':
+        return <Cyber3Layer onNodeSelect={setInspectorContent} />;
+      case 'Default':
+      default:
+        return (
+          <>
+            <main className="dashboard-main">
+              <ExternalNetwork />
+            </main>
+            <section className="dashboard-sub-overlay">
+              <InternalNetwork />
+            </section>
+          </>
+        );
+    }
+  };
+
   return (
     <div className="dashboard-layout">
-      {/* 왼쪽: 메인 메뉴 토글 컴포넌트 */}
-      <DashboardMenu />
+      <DashboardMenu onMenuSelect={handleMenuSelect} />
 
-      {/* 중앙: 메인+서브 겹치는 컨테이너 */}
       <div className="dashboard-main-container">
-        <main className="dashboard-main">
-          <ExternalNetwork />
-        </main>
-        <section className="dashboard-sub-overlay">
-          <InternalNetwork />
-        </section>
+        {renderActiveView()}
       </div>
 
       {/* 오른쪽: 로그 영역 */}
@@ -41,6 +74,9 @@ function Dashboards() {
             포트스캔 의심 트래픽 탐지!
           </div>
         </div>
+        
+        {/* Node Info 가여기에 렌더링*/}
+        {inspectorContent}
       </section>
     </div>
   );

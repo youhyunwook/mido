@@ -200,17 +200,29 @@ html, body, #root {
 /* 태블릿 크기 (768px 이하) */
 @media (max-width: 768px) {
   .dashboard-layout {
-    grid-template-columns: minmax(120px, 150px) 1fr minmax(200px, 250px);
-    min-width: 600px;
+    grid-template-columns: 120px 1fr; /* 사이드메뉴, 컨텐츠+로그 */
+    grid-template-rows: 1fr auto; /* 컨텐츠, 로그 */
+    min-width: 100%;
+    height: 100vh; /* 전체 뷰포트 높이 사용 */
+  }
+
+  .dashboard-main-container {
+    grid-column: 2;
+    grid-row: 1;
+    height: 65vh; /* 화면 높이의 65% */
+    min-width: 0;
+  }
+
+  .dashboard-log {
+    grid-column: 2;
+    grid-row: 2;
+    height: 35vh; /* 화면 높이의 35% */
+    border-top: 1px solid #2c2c3a;
   }
   
   .dashboard-menu {
     padding: 12px 4px 24px 4px;
     gap: 8px;
-  }
-  
-  .dashboard-log {
-    padding: 12px;
   }
   
   .dashboard-sub-overlay {

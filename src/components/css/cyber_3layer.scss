@@ -1,0 +1,85 @@
+.node-detail-panel {
+	/* 노드 상세 패널 전체 영역 */
+	padding: 16px;
+	color: #d1d5db;
+	font-size: 14px;
+}
+.node-detail-title {
+	/* 노드 상세 패널 제목 */
+	font-weight: 600;
+	margin-bottom: 8px;
+}
+.node-detail-section {
+	/* 각 정보 섹션 영역 */
+	padding: 16px;
+	border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+.node-detail-section-title {
+	/* 섹션 제목 */
+	font-size: 14px;
+	font-weight: 600;
+	margin-bottom: 12px;
+	color: #fff;
+}
+.node-detail-grid {
+	/* 기본 정보 그리드 */
+	display: grid;
+	row-gap: 6px;
+	color: #e5e7eb;
+	font-size: 13px;
+}
+.node-detail-grid-2 {
+	/* 2열 정보 그리드 (레이어별 상세) */
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	column-gap: 16px;
+	row-gap: 4px;
+	font-size: 12px;
+	color: #d1d5db;
+}
+.node-detail-footer {
+	/* 하단 버튼 영역 */
+	padding: 12px;
+	border-top: 1px solid rgba(176, 15, 15, 0.1);
+	display: flex;
+	gap: 8px;
+}
+.node-detail-btn {
+	/* 상세 패널 내 버튼 */
+	padding: 4px 8px;
+	background: #374151;
+	color: #fff;
+	border: none;
+	border-radius: 6px;
+}
+.conn-list-panel {
+	/* 연결 리스트 패널 */
+	padding: 16px;
+	flex: 1;
+	overflow: auto;
+}
+.conn-list-title {
+	/* 연결 리스트 제목 */
+	font-size: 14px;
+	font-weight: 600;
+	margin-bottom: 8px;
+	color: #fff;
+}
+.conn-list-row {
+	/* 연결 리스트 각 행 */
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: 4px 0;
+	border-bottom: 1px solid rgba(55,65,81,0.5);
+	font-size: 12px;
+}
+.conn-list-label {
+	/* 연결 리스트 라벨 */
+	color: #e5e7eb;
+}
+.conn-list-empty {
+	/* 연결 리스트가 비었을 때 */
+	font-size: 12px;
+	color: #9ca3af;
+}

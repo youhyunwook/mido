@@ -2,224 +2,106 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import ForceGraph3D from "react-force-graph-3d";
 import * as THREE from "three";
 
+// ------------------------------
+// 1) 데이터 로딩 & 표준화 + 중앙 Core로 고아링크 수렴
+// ------------------------------
 async function fetchNetworkData(activeView = "externalInternal") {
-  const response = await fetch(`http://localhost:8000/neo4j/nodes?activeView=${activeView}`);
-  const data = await response.json();
+  const res = await fetch(`http://localhost:8000/neo4j/nodes?activeView=${activeView}`);
+  const data = await res.json();
+
   const nodesMap = new Map();
-  const links = [];
-  data.forEach(item => {
-    if (item.src_IP && item.src_IP.id) nodesMap.set(item.src_IP.id, item.src_IP);
-    if (item.dst_IP && item.dst_IP.id) nodesMap.set(item.dst_IP.id, item.dst_IP);
-    if (item.edge && item.edge.sourceIP && item.edge.targetIP) {
-      links.push({
-        source: item.edge.sourceIP,
-        target: item.edge.targetIP,
-        ...item.edge
-      });
+  const rawLinks = [];
+  data.forEach((item) => {
+    if (item.src_IP?.id) nodesMap.set(item.src_IP.id, item.src_IP);
+    if (item.dst_IP?.id) nodesMap.set(item.dst_IP.id, item.dst_IP);
+    if (item.edge?.sourceIP && item.edge?.targetIP) {
+      rawLinks.push({ source: item.edge.sourceIP, target: item.edge.targetIP, ...item.edge });
     }
   });
-  return { nodes: Array.from(nodesMap.values()), links };
-}
 
-export default function NetworkTopology3D({
-  clusters = 8,
-  nodesPerCluster = 35,
-  linkProbIntra = 0.08,
-  linkProbInter = 0.012,
-  assumedProb = 0.18,
-  onInspectorChange,
-  onTestPageRequest,
-}) {
-  const fgRef = useRef();
-  const [selected, setSelected] = useState(null);
+  const nodeIds = new Set([...nodesMap.keys()]);
+  const filtered = rawLinks.filter((l) => nodeIds.has(l.source) && nodeIds.has(l.target));
 
-  // API 데이터 가져오기 (초기 로딩)
-  const [baseData, setBaseData] = useState({ nodes: [], links: [] });
-  useEffect(() => {
-    fetchNetworkData("externalInternal").then(setBaseData);
-  }, []);
-
-  // 링크 데이터가 변경될 때만 다시 계산되는 인접 리스트
-  const adjacency = useMemo(() => buildAdjacency(baseData.links), [baseData]);
-
-  // 선택된 노드가 변경되면 카메라 이동
-  useEffect(() => {
-    if (!selected || !fgRef.current) return;
-    const distance = 120;
-    const distRatio = 1 + distance / Math.hypot(selected.x || 1, selected.y || 1, selected.z || 1);
-    fgRef.current.cameraPosition(
-      { x: (selected.x || 1) * distRatio, y: (selected.y || 1) * distRatio, z: 400 }, // z축 고정
-      selected, // lookAt 대상
-      800 // 이동 시간 (ms)
-    );
-  }, [selected]);
-
-  const selectedId = selected?.id ?? null;
-
-  // 노드 강조 여부
-  const isHLNode = (n) => {
-    if (!selectedId) return false;
-    if (n.id === selectedId) return true;
-    const neigh = adjacency.get(selectedId);
-    return neigh ? neigh.has(n.id) : false;
-  };
-
-  // 링크가 선택된 노드에 연결되어 있는지
-  const isIncident = (l) => selectedId && (idOf(l.source) === selectedId || idOf(l.target) === selectedId);
-
-  /**
-   * 각 노드의 3D 객체(메시)를 생성합니다.
-   * @param {object} node - 노드 데이터
-   * @returns {THREE.Group} Three.js 그룹 객체
-   */
-  function nodeMesh(node) {
-    const group = new THREE.Group();
-
-  // 노드 종류별 지오메트리
-    let geom;
-    if (node.kind === "switch") geom = new THREE.BoxGeometry(6, 3, 6);
-    else if (node.kind === "router") geom = new THREE.CylinderGeometry(3, 3, 6, 16);
-    else geom = new THREE.SphereGeometry(2.2, 16, 16); // host
-
-    const baseColor = new THREE.Color(node.color);
-    const HIGHLIGHT = new THREE.Color(0xffda79);
-    const DIM = new THREE.Color(0x1b2a4a);
-    const useColor = isHLNode(node) ? HIGHLIGHT : selectedId ? DIM : baseColor;
-
-    const body = new THREE.Mesh(geom, new THREE.MeshStandardMaterial({ color: useColor, metalness: 0.25, roughness: 0.6 }));
-    body.castShadow = true;
-    body.receiveShadow = true;
-    group.add(body);
-
-  // 노드 주변 링
-    const ring = new THREE.Mesh(
-      new THREE.RingGeometry(node.kind === "host" ? 3.3 : 4.5, node.kind === "host" ? 3.7 : 5.2, 24),
-      new THREE.MeshBasicMaterial({ color: 0x66ccff, side: THREE.DoubleSide, transparent: true, opacity: isHLNode(node) ? 0.85 : 0.25 })
-    );
-    ring.rotation.x = Math.PI / 2;
-    group.add(ring);
-
-  // 노드 상태 LED
-    const led = new THREE.Mesh(new THREE.SphereGeometry(0.8, 8, 8), new THREE.MeshBasicMaterial({ color: node.status === "up" ? 0x00ff99 : 0xff3355 }));
-    led.position.set(0, node.kind === "host" ? 2.8 : 3.8, 0);
-    group.add(led);
-
-  // 노드 라벨
-    const label = makeTextSprite(node.label || node.id, { fontsize: 70, borderThickness: 0, fillStyle: isHLNode(node) ? "#ffffff" : "#d6e2ff" });
-    label.position.set(0, node.kind === "host" ? 5 : 7, 0);
-    group.add(label);
-
-  // 클릭 감지용 히트박스
-    const hit = new THREE.Mesh(new THREE.SphereGeometry(7, 8, 8), new THREE.MeshBasicMaterial({ opacity: 0.0, transparent: true, depthWrite: false }));
-    hit.name = "hit-proxy";
-    group.add(hit);
-    return group;
+  // 고아 링크 → CORE
+  const orphan = rawLinks.filter((l) => !nodeIds.has(l.source) || !nodeIds.has(l.target));
+  if (orphan.length) {
+    const coreId = "__core__";
+    if (!nodesMap.has(coreId)) {
+      nodesMap.set(coreId, {
+        id: coreId,
+        label: "CORE",
+        kind: "core",
+        type: "core",
+        color: "#ffffff",
+        status: "up",
+        zone: null,
+      });
+    }
+    for (const l of orphan) {
+      const srcOK = nodeIds.has(l.source);
+      const tgtOK = nodeIds.has(l.target);
+      if (srcOK && !tgtOK) filtered.push({ ...l, target: coreId, type: l.type || "logical" });
+      else if (!srcOK && tgtOK) filtered.push({ ...l, source: coreId, type: l.type || "logical" });
+    }
   }
 
-  // info 패널 상위 컴포넌트 연동
-  useEffect(() => {
-    const inspectorJsx = (
-      <div className="h-[80vh] rounded-2xl bg-white/90 p-4 overflow-auto mt-4">
-        <h2 className="text-xl font-semibold mb-3">Node Info</h2>
-        {selected ? (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <tbody>
-                {Object.entries(selected)
-                  .filter(([key]) => !['x','y','z','vx','vy','vz','__threeObj','__id'].includes(key))
-                  .map(([key, value]) => {
-                    const displayKey = key === "__labels" ? "Labels" : key;
-                    return (
-                      <tr key={key} className="border-b border-gray-200/80">
-                        <td className="py-2 font-medium text-gray-500">{displayKey}</td>
-                        <td className="py-2 text-right font-mono break-all">{String(value)}</td>
-                      </tr>
-                    );
-                  })}
-                <tr>
-                  <td className="py-2 font-medium text-gray-500">연결 이웃 수</td>
-                  <td className="py-2 text-right">{adjacency.get(selected.id)?.size ?? 0}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <p className="text-gray-500"></p>
-        )}
-      </div>
-    );
-  // info JSX 전달
-    onInspectorChange(inspectorJsx);
-  }, [selected, adjacency, onInspectorChange, baseData.nodes]);
+  // self-loop/중복 제거
+  const seen = new Set();
+  const links = [];
+  for (const l of filtered) {
+    if (l.source === l.target) continue;
+    const k1 = `${l.source}|${l.target}|${l.type || ""}`;
+    const k2 = `${l.target}|${l.source}|${l.type || ""}`;
+    if (seen.has(k1) || seen.has(k2)) continue;
+    seen.add(k1);
+    links.push(l);
+  }
 
-  // 그래프 영역만 렌더링
-  // 확대(휠) 시 카메라 z값이 일정 이하로 내려가면 testpage로 이동
-  const handleWheel = (e) => {
-    if (!fgRef.current || typeof fgRef.current.camera !== "function") return;
-    setTimeout(() => {
-      if (!fgRef.current || typeof fgRef.current.camera !== "function") return;
-      const camera = fgRef.current.camera();
-      if (!camera) return;
-      const z = camera.position.z;
-      // if (z > 0 && z < 40 && typeof onTestPageRequest === "function") {
-      //   onTestPageRequest();
-      // }
-      console.log("Camera Z:", z);
-    }, 200);
+  const TYPE_COLORS = {
+    core: "#ffffff",
+    firewall: "#e55353",
+    router: "#f6a609",
+    l3switch: "#f6a609",
+    switchrouter: "#f6a609",
+    layer3: "#f6a609",
+    switch: "#3fb950",
+    hub: "#26c6da",
+    server: "#6aa7ff",
+    host: "#6aa7ff",
+    default: "#a0b4ff",
   };
 
-  return (
-    <div className="w-full h-full grid grid-cols-12 gap-3">
-      <div className="col-span-12 h-[80vh] rounded-2xl shadow-md relative" onWheel={handleWheel}>
-        <ForceGraph3D
-          ref={fgRef}
-          graphData={baseData}
-          backgroundColor="#2b2f36"
-          nodeThreeObject={nodeMesh}
-          nodeThreeObjectExtend={true}
-          nodeRelSize={4}
-          nodeOpacity={0.95}
-          nodeColor={(n) => {
-            if (!selectedId) return n.color ?? 0x6aa7ff;
-            return isHLNode(n) ? "#ffd166" : "#c9d3ea";
-          }}
-          linkOpacity={0.65}
-          linkWidth={(l) => (isIncident(l) ? 3 : l.backbone ? 1.6 : 0.9)}
-          linkColor={(l) => (isIncident(l) ? "#3a6fe2" : l.backbone ? "#9aaee8" : "#8fb3ff")}
-          linkMaterial={(l) =>
-            l.assumed
-              ? new THREE.LineDashedMaterial({ color: isIncident(l) ? 0x3a6fe2 : 0x8fb3ff, dashSize: 2, gapSize: 2, transparent: true, opacity: 0.9 })
-              : new THREE.LineBasicMaterial({ color: isIncident(l) ? 0x3a6fe2 : l.backbone ? 0x9aaee8 : 0x8fb3ff })
-          }
-          linkDirectionalParticles={(l) => (l.assumed ? 0 : isIncident(l) ? 4 : 0)}
-          linkDirectionalParticleWidth={1}
-          linkDirectionalParticleSpeed={0.004}
-          onEngineStop={() => {
-            fgRef.current?.scene()?.traverse((obj) => {
-              if (obj.type === "Line" || obj.type === "LineSegments") {
-                obj.computeLineDistances?.();
-              }
-            });
-          }}
-          onNodeClick={(n) => setSelected((prev) => (prev && prev.id === n.id ? null : n))}
-          onBackgroundClick={() => setSelected(null)}
-          enableNodeDrag={false}
-          showNavInfo={false}
-          warmupTicks={30}
-          cooldownTicks={60}
-          d3AlphaDecay={0.02}
-          d3VelocityDecay={0.35}
-        />
-      </div>
-    </div>
-  );
+  const nodes = Array.from(nodesMap.values()).map((n) => {
+    const kind = (n.kind || n.type || "host").toLowerCase();
+    const label = n.label || n.ip || String(n.id);
+    const color = n.color || TYPE_COLORS[kind] || TYPE_COLORS.default;
+    const status = n.status || "up";
+    const subnet = n.subnet
+      ? n.subnet
+      : typeof n.ip === "string" && n.ip.includes(".")
+      ? n.ip.split(".").slice(0, 3).join(".") + ".0/24"
+      : "unknown/24";
+    const zone = Number.isFinite(n.zone) ? n.zone : n.kind === "core" ? null : 0;
+    return { ...n, kind, label, color, status, subnet, zone };
+  });
+
+  return { nodes, links };
 }
-// 객체 대신 ID 추출
+
+// ------------------------------
+// 2) 유틸
+// ------------------------------
 function idOf(x) {
   return typeof x === "object" && x !== null ? x.id : x;
 }
 
-// 링크 배열로부터 인접 리스트(Map) 생성
+function hashId(x) {
+  const s = String(x);
+  let h = 0 >>> 0;
+  for (let i = 0; i < s.length; i++) h = (((h << 5) - h) + s.charCodeAt(i)) >>> 0; // h*31 + c
+  return h >>> 0;
+}
+
 function buildAdjacency(links) {
   const map = new Map();
   for (const l of links) {
@@ -233,48 +115,475 @@ function buildAdjacency(links) {
   return map;
 }
 
-
-/**
- * Three.js로 노드 라벨 텍스트 스프라이트 생성
- * @param {string} message
- * @param {object} [opts={}] - 스타일 옵션
- * @returns {THREE.Sprite}
- */
-function makeTextSprite(message, { fontsize = 90, fillStyle = "#fff" } = {}) {
-  const canvas = document.createElement("canvas");
-  const ctx = canvas.getContext("2d");
-  const font = `${fontsize}px Inter, system-ui, -apple-system, Segoe UI, Roboto`;
-  ctx.font = font;
-  const textWidth = ctx.measureText(message).width;
-  canvas.width = textWidth + 40;
-  canvas.height = fontsize + 30;
-  const r = 12;
-  ctx.fillStyle = "rgba(10,16,32,0.8)";
-  roundRect(ctx, 0, 0, canvas.width, canvas.height, r, true, false);
-  ctx.fillStyle = fillStyle;
-  ctx.font = font;
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillText(message, canvas.width / 2, canvas.height / 2);
-  const texture = new THREE.CanvasTexture(canvas);
-  const spriteMat = new THREE.SpriteMaterial({ map: texture, transparent: true });
-  const sprite = new THREE.Sprite(spriteMat);
-  sprite.scale.set(canvas.width / 10, canvas.height / 10, 1);
-  return sprite;
+function buildNeighbors(nodes, links) {
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const neigh = new Map();
+  for (const n of nodes) neigh.set(n.id, new Set());
+  for (const l of links) {
+    const s = idOf(l.source),
+      t = idOf(l.target);
+    if (byId.has(s) && byId.has(t)) {
+      neigh.get(s)?.add(t);
+      neigh.get(t)?.add(s);
+    }
+  }
+  return { byId, neigh };
 }
 
-// 캔버스 둥근 사각형 유틸리티
-function roundRect(ctx, x, y, w, h, r, fill, stroke) {
-  if (w < 2 * r) r = w / 2;
-  if (h < 2 * r) r = h / 2;
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.arcTo(x + w, y, x + w, y + h, r);
-  ctx.arcTo(x + w, y + h, x, y + h, r);
-  ctx.arcTo(x, y + h, x, y, r);
-  ctx.arcTo(x, y, x + w, y, r);
-  ctx.closePath();
-  if (fill) ctx.fill();
-  if (stroke) ctx.stroke();
+// ------------------------------
+// 3) 레이아웃: Zone별 Firewall 중심 Starburst + Core 고정
+// ------------------------------
+function computeZoneCenters(nodes, zoneGap = 800, pinnedZones = new Set()) {
+  const zones = [...new Set(nodes.map((n) => n.zone).filter((z) => Number.isFinite(z)))].sort((a, b) => a - b);
+  const centers = new Map();
+
+  if (pinnedZones && pinnedZones.size) {
+    for (const z of pinnedZones) if (zones.includes(z)) centers.set(z, { x: 0, y: 0, z: 0 });
+    const others = zones.filter((z) => !pinnedZones.has(z));
+    const R = zoneGap * 1.2;
+    const step = (2 * Math.PI) / Math.max(1, others.length);
+    others.forEach((z, i) => {
+      centers.set(z, {
+        x: Math.cos(i * step) * R,
+        y: Math.sin(i * step) * R,
+        z: ((i % 5) - 2) * 90,
+      });
+    });
+    return centers;
+  }
+
+  const cols = Math.ceil(Math.sqrt(zones.length || 1));
+  const rows = Math.ceil((zones.length || 1) / cols);
+  zones.forEach((z, i) => {
+    const r = Math.floor(i / cols),
+      c = i % cols;
+    const cx = (c - (cols - 1) / 2) * zoneGap;
+    const cy = (r - (rows - 1) / 2) * zoneGap;
+    const cz = ((i % 5) - 2) * 100;
+    centers.set(z, { x: cx, y: cy, z: cz });
+  });
+  return centers;
 }
 
+function starburstFirewallCentered(
+  nodes,
+  links,
+  {
+    minArms = 6,
+    maxArms = 18,
+    baseRadius = 36,
+    layerStepR = 58,
+    layerStepZ = 22,
+    bucketSpreadDegNear = 18,
+    bucketSpreadDegFar = 60,
+    armJitterAngle = 0.0,
+    nodeJitterR = 8,
+    nodeJitterZ = 6,
+  } = {}
+) {
+  const PIN_HINTS = new Set(["786", 786, "172.45.0.195"]);
+  const isPinnedNode = (n) => PIN_HINTS.has(n.id) || PIN_HINTS.has(String(n.id)) || PIN_HINTS.has(n.label) || PIN_HINTS.has(n.ip);
+  const pinnedZones = new Set(
+    nodes.filter((n) => Number.isFinite(n.zone) && n.kind === "firewall" && isPinnedNode(n)).map((n) => n.zone)
+  );
+
+  const centers = computeZoneCenters(nodes, 800, pinnedZones);
+  const { byId, neigh } = buildNeighbors(nodes, links);
+
+  for (const n of nodes) n.__deg = neigh.get(n.id)?.size || 0;
+
+  const zoneNodes = new Map();
+  const zoneSubnets = new Map();
+  for (const n of nodes) {
+    if (!Number.isFinite(n.zone)) continue;
+    if (!zoneNodes.has(n.zone)) zoneNodes.set(n.zone, []);
+    zoneNodes.get(n.zone).push(n);
+    if (!zoneSubnets.has(n.zone)) zoneSubnets.set(n.zone, new Set());
+    zoneSubnets.get(n.zone).add(n.subnet);
+  }
+
+  function pickFirewallRoot(arr) {
+    const pinnedFw = arr.find(
+      (n) => n.kind === "firewall" && (String(n.id) === "786" || n.id === 786 || n.label === "172.45.0.195" || n.ip === "172.45.0.195")
+    );
+    if (pinnedFw) return pinnedFw;
+    const fws = arr.filter((n) => n.kind === "firewall");
+    if (fws.length) return fws.sort((a, b) => (neigh.get(b.id)?.size || 0) - (neigh.get(a.id)?.size || 0))[0];
+    const pref = new Set(["router", "l3switch", "switchrouter", "layer3"]);
+    const cand = arr.filter((n) => pref.has(n.kind));
+    if (cand.length) return cand.sort((a, b) => (neigh.get(b.id)?.size || 0) - (neigh.get(a.id)?.size || 0))[0];
+    return arr.slice().sort((a, b) => (neigh.get(b.id)?.size || 0) - (neigh.get(a.id)?.size || 0))[0];
+  }
+
+  for (const [zone, arr] of zoneNodes.entries()) {
+    const center = centers.get(zone) || { x: 0, y: 0, z: 0 };
+    const root = pickFirewallRoot(arr);
+
+    if (root) {
+      root.__targetX = center.x;
+      root.__targetY = center.y;
+      root.__targetZ = center.z;
+      root.fx = center.x;
+      root.fy = center.y;
+      root.fz = center.z;
+      root.__progress = 0;
+    }
+
+    // BFS 깊이 산출 (같은 zone 내에서만)
+    const depth = new Map();
+    const q = [];
+    if (root) {
+      depth.set(root.id, 0);
+      q.push(root.id);
+    }
+    while (q.length) {
+      const u = q.shift();
+      for (const v of neigh.get(u) || []) {
+        if (!depth.has(v) && byId.get(v)?.zone === zone) {
+          depth.set(v, depth.get(u) + 1);
+          q.push(v);
+        }
+      }
+    }
+
+    // Subnet → ARM
+    const snList = [...(zoneSubnets.get(zone) || new Set())].sort();
+    const armCount = Math.max(minArms, Math.min(maxArms, snList.length || minArms));
+    const snToArm = new Map();
+    snList.forEach((sn) => snToArm.set(sn, hashId(sn) % armCount));
+    const base = -Math.PI;
+    const step = (2 * Math.PI) / armCount;
+
+    // 버킷 배치
+    const buckets = new Map();
+    for (const n of arr) {
+      if (root && n.id === root.id) continue;
+      const d = depth.has(n.id) ? depth.get(n.id) : 1;
+      const arm = snToArm.get(n.subnet) ?? (hashId(n.id) % armCount);
+      const key = `${arm}|${d}`;
+      if (!buckets.has(key)) buckets.set(key, []);
+      buckets.get(key).push(n);
+    }
+
+    for (const [key, list] of buckets.entries()) {
+      list.sort((a, b) => String(a.label || a.ip || a.id).localeCompare(String(b.label || b.ip || b.id)));
+      const [armStr, depthStr] = key.split("|");
+      const arm = parseInt(armStr, 10);
+      const d = parseInt(depthStr, 10);
+
+      const t = Math.min(1, d / 4);
+      const spreadDeg = bucketSpreadDegNear * (1 - t) + bucketSpreadDegFar * t;
+      const spread = (spreadDeg * Math.PI) / 180;
+
+      for (let i = 0; i < list.length; i++) {
+        const frac = list.length === 1 ? 0 : i / (list.length - 1) - 0.5;
+        const thetaBase = base + arm * step;
+        const theta = thetaBase + frac * spread + (Math.random() - 0.5) * armJitterAngle;
+
+        const n = list[i];
+        const typeBias = n.kind === "switch" || n.kind === "hub" ? -10 : n.kind === "server" || n.kind === "host" ? 12 : 0;
+        const r = baseRadius + d * layerStepR + typeBias + (Math.random() - 0.5) * nodeJitterR;
+        const phi = Math.min(Math.PI / 2.2, 0.38 + d * 0.06 + (Math.random() - 0.5) * 0.05);
+
+        n.__targetX = center.x + r * Math.cos(theta) * Math.cos(phi);
+        n.__targetY = center.y + r * Math.sin(theta) * Math.cos(phi);
+        n.__targetZ = center.z + r * Math.sin(phi) + (Math.random() - 0.5) * nodeJitterZ + d * (layerStepZ * 0.15);
+
+        n.fx = center.x;
+        n.fy = center.y;
+        n.fz = center.z;
+        n.__progress = 0;
+      }
+    }
+  }
+
+  // CORE 고정 (뒤로 살짝)
+  for (const n of nodes) {
+    if (n.kind === "core") {
+      n.__targetX = 0;
+      n.__targetY = 0;
+      n.__targetZ = -280;
+      n.fx = 0;
+      n.fy = 0;
+      n.fz = -280;
+      n.__progress = 1;
+    }
+  }
+
+  return { nodes };
+}
+
+// ------------------------------
+// 4) 메인 컴포넌트 (+ Space-Drag Pan)
+// ------------------------------
+export default function FirewallCenteredStarburst({ onInspectorChange }) {
+  const fgRef = useRef();
+  const [graph, setGraph] = useState({ nodes: [], links: [] });
+  const [selected, setSelected] = useState(null);
+  const spaceDownRef = useRef(false);
+
+  // 라이트
+  useEffect(() => {
+    const scene = fgRef.current?.scene?.();
+    if (!scene) return;
+    const old = scene.getObjectByName("_decor");
+    if (old) scene.remove(old);
+    const decor = new THREE.Group();
+    decor.name = "_decor";
+    decor.add(new THREE.AmbientLight(0xffffff, 0.7));
+    const dir = new THREE.DirectionalLight(0xffffff, 0.95);
+    dir.position.set(260, 320, 360);
+    decor.add(dir);
+    const rim = new THREE.DirectionalLight(0x88ccff, 0.35);
+    rim.position.set(-260, -200, -300);
+    decor.add(rim);
+    scene.add(decor);
+    return () => {
+      scene.remove(decor);
+    };
+  }, []);
+
+  // 데이터 로딩 + 레이아웃 적용
+  useEffect(() => {
+    (async () => {
+      const raw = await fetchNetworkData("externalInternal");
+      const laid = starburstFirewallCentered(raw.nodes, raw.links, {
+        minArms: 6,
+        maxArms: 18,
+        layerStepR: 60,
+        layerStepZ: 24,
+        bucketSpreadDegNear: 20,
+        bucketSpreadDegFar: 70,
+      });
+      setGraph({ nodes: laid.nodes, links: raw.links });
+    })();
+  }, []);
+
+  // Space + Drag = Pan
+  useEffect(() => {
+    const fg = fgRef.current;
+    const controls = fg?.controls?.();
+    const renderer = fg?.renderer?.();
+    if (!controls || !renderer) return;
+
+    controls.enablePan = true;
+    controls.screenSpacePanning = true;
+    controls.listenToKeyEvents?.(window);
+    controls.keyPanSpeed = 12.0;
+
+    const el = renderer.domElement;
+    let space = false;
+    const setCursor = () => { if (el) el.style.cursor = space ? "grab" : ""; };
+
+    const onKeyDown = (e) => {
+      if (e.code === "Space" || e.key === " ") {
+        if (!space) {
+          space = true; spaceDownRef.current = true; setCursor();
+          controls.mouseButtons.LEFT = THREE.MOUSE.PAN;
+          e.preventDefault();
+        }
+      }
+    };
+    const onKeyUp = (e) => {
+      if (e.code === "Space" || e.key === " ") {
+        space = false; spaceDownRef.current = false; setCursor();
+        controls.mouseButtons.LEFT = THREE.MOUSE.ROTATE;
+      }
+    };
+    const onMouseDown = () => { if (space && el) el.style.cursor = "grabbing"; };
+    const onMouseUp = () => { if (space && el) el.style.cursor = "grab"; };
+
+    window.addEventListener("keydown", onKeyDown, { passive: false });
+    window.addEventListener("keyup", onKeyUp);
+    el.addEventListener("mousedown", onMouseDown);
+    window.addEventListener("mouseup", onMouseUp);
+
+    controls.mouseButtons.RIGHT = THREE.MOUSE.PAN;
+
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+      el.removeEventListener("mousedown", onMouseDown);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
+  }, []);
+
+  // 성장 애니메이션
+  useEffect(() => {
+    let raf; const speed = 0.045;
+    const animate = (t = 0) => {
+      let changed = false;
+      for (const n of graph.nodes) {
+        if (n.__progress == null) continue;
+        if (n.__progress < 1) n.__progress = Math.min(1, n.__progress + speed);
+        const u = n.__progress; const ease = u < 0.5 ? 2 * u * u : -1 + (4 - 2 * u) * u;
+        n.fx = n.fx + (n.__targetX - n.fx) * ease;
+        n.fy = n.fy + (n.__targetY - n.fy) * ease;
+        n.fz = n.fz + (n.__targetZ - n.fz) * ease;
+        if (n.__progress >= 1) {
+          const wob = 0.9 + (n.__deg || 0) * 0.02;
+          n.fx += Math.sin(0.0018 * t + hashId(n.id) * 0.00013) * 0.6 * wob;
+          n.fy += Math.cos(0.0015 * t + hashId(n.id) * 0.00017) * 0.6 * wob;
+          n.fz += Math.sin(0.0012 * t + hashId(n.id) * 0.00011) * 0.4 * wob;
+        }
+        changed = true;
+      }
+      if (changed) fgRef.current?.refresh();
+      raf = requestAnimationFrame(animate);
+    };
+    raf = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(raf);
+  }, [graph.nodes]);
+
+  // 인접/선택
+  const adjacency = useMemo(() => buildAdjacency(graph.links), [graph.links]);
+  const [selectedId, setSelectedId] = useState(null);
+  useEffect(() => { setSelectedId(selected?.id ?? null); }, [selected]);
+  const isHLNode = (n) => selectedId && (n.id === selectedId || adjacency.get(selectedId)?.has(n.id));
+  const isIncident = (l) => selectedId && (idOf(l.source) === selectedId || idOf(l.target) === selectedId);
+
+  // Inspector 패널 콜백
+  useEffect(() => {
+    const inspectorJsx = (
+      <div className="h-[80vh] rounded-2xl bg-white/90 p-4 overflow-auto mt-4">
+        <h2 className="text-xl font-semibold mb-3">Node Info</h2>
+        {selected ? (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <tbody>
+                {["subnet", "zone", "ip", "id", "kind", "label"].map((key) => (
+                  <tr key={key} className="border-b border-gray-200/80">
+                    <td className="py-2 font-medium text-gray-500">{key}</td>
+                    <td className="py-2 text-right font-mono break-all">{String(selected[key] ?? "")}</td>
+                  </tr>
+                ))}
+                <tr>
+                  <td className="py-2 font-medium text-gray-500">연결 이웃 수</td>
+                  <td className="py-2 text-right">{adjacency.get(selected.id)?.size ?? 0}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="text-gray-500"></p>
+        )}
+      </div>
+    );
+    onInspectorChange?.(inspectorJsx);
+  }, [selected, adjacency, onInspectorChange, graph.nodes]);
+
+  // 노드/링크 렌더링
+  function nodeThreeObject(node) {
+    const group = new THREE.Group();
+    const base = new THREE.Color(node.color || "#a0b4ff");
+    const HIGHLIGHT = new THREE.Color(0xffda79);
+    const DIM = new THREE.Color(0x324055);
+    const use = !selectedId ? base : isHLNode(node) ? HIGHLIGHT : DIM;
+
+    const mat = new THREE.MeshStandardMaterial({ color: use, metalness: 0.25, roughness: 0.72 });
+    let mesh;
+    if (node.kind === "core") mesh = new THREE.Mesh(new THREE.TorusGeometry(7, 1.6, 16, 32), mat);
+    else if (node.kind === "firewall") mesh = new THREE.Mesh(new THREE.ConeGeometry(4.2, 9, 10), mat);
+    else if (node.kind === "router") mesh = new THREE.Mesh(new THREE.CylinderGeometry(4.2, 4.2, 8, 18), mat);
+    else if (node.kind === "switch" || node.kind === "l2switch") mesh = new THREE.Mesh(new THREE.BoxGeometry(8.2, 2.6, 6.2), mat);
+    else if (node.kind === "l3switch" || node.kind === "switchrouter" || node.kind === "layer3") {
+      const baseBox = new THREE.Mesh(new THREE.BoxGeometry(8.2, 2.6, 6.2), mat);
+      const topCyl = new THREE.Mesh(new THREE.CylinderGeometry(2.8, 2.8, 2.2, 16), mat);
+      topCyl.position.y = 2.6;
+      const g = new THREE.Group();
+      g.add(baseBox);
+      g.add(topCyl);
+      mesh = g;
+    } else if (node.kind === "hub") mesh = new THREE.Mesh(new THREE.OctahedronGeometry(4.2), mat);
+    else mesh = new THREE.Mesh(new THREE.SphereGeometry(3.0, 16, 16), mat);
+
+    const s = node.kind === "core" ? 1.4 : Math.max(0.9, Math.min(1.8, 0.95 + (node.__deg || 0) * 0.06));
+    mesh.scale.set(s, s, s);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    group.add(mesh);
+
+    const led = new THREE.Mesh(
+      new THREE.SphereGeometry(0.7, 8, 8),
+      new THREE.MeshBasicMaterial({ color: node.status === "up" ? 0x00ff99 : 0xff3355 })
+    );
+    led.position.set(0, node.kind === "core" ? 8 : 6 * s, 0);
+    group.add(led);
+
+    const hit = new THREE.Mesh(
+      new THREE.SphereGeometry(7, 8, 8),
+      new THREE.MeshBasicMaterial({ opacity: 0.0, transparent: true, depthWrite: false })
+    );
+    hit.name = "hit-proxy";
+    group.add(hit);
+
+    return group;
+  }
+
+  const isLogicalLink = (l) => String(l.type || "").toLowerCase() === "logical";
+  const isPhysicalLink = (l) => String(l.type || "").toLowerCase() === "physical";
+
+  const linkWidth = (l) =>
+    selectedId ? (isIncident(l) ? 3 : isPhysicalLink(l) ? 1.7 : 1.0) : isPhysicalLink(l) ? 1.9 : 1.1;
+  const linkColor = (l) =>
+    selectedId ? (isIncident(l) ? "#3a6fe2" : isLogicalLink(l) ? "#88a0cc" : "#7f90b8") : isLogicalLink(l) ? "#87aafc" : "#a9b9ff";
+  const linkMaterial = (l) =>
+    isLogicalLink(l)
+      ? new THREE.LineDashedMaterial({ color: selectedId && isIncident(l) ? 0x3a6fe2 : 0x87aafc, dashSize: 2, gapSize: 2, transparent: true, opacity: 0.95 })
+      : new THREE.LineBasicMaterial({ color: selectedId && isIncident(l) ? 0x3a6fe2 : 0xa9b9ff });
+  const linkDirectionalParticles = (l) => (selectedId ? (isIncident(l) ? 4 : 0) : isLogicalLink(l) ? 0 : 2);
+  const linkDirectionalParticleSpeed = (l) => (isPhysicalLink(l) ? 0.006 : 0.0);
+  const linkDirectionalParticleWidth = 1.2;
+  const linkCurvature = (l) => (isPhysicalLink(l) ? 0.05 : 0.16);
+  const linkCurveRotation = (l) => ((hashId(idOf(l.source)) + hashId(idOf(l.target))) % 628) / 100;
+
+  const focusNodeById = (nodeId) => {
+    const node = graph.nodes.find((n) => n.id === nodeId);
+    if (!node) return;
+    setSelected(node);
+    const distance = 140;
+    const zFixed = 420;
+    const distRatio = 1 + distance / Math.hypot(node.x || 1, node.y || 1, node.z || 1);
+    fgRef.current?.cameraPosition({ x: (node.x || 1) * distRatio, y: (node.y || 1) * distRatio, z: zFixed }, node, 900);
+  };
+  const handleNodeClick = (n) => {
+    if (spaceDownRef.current) return; // 팬 중 클릭 무시
+    focusNodeById(n.id);
+  };
+  const handleBackgroundClick = () => setSelected(null);
+
+  return (
+    <div className="w-full h-full">
+      <ForceGraph3D
+        ref={fgRef}
+        graphData={graph}
+        backgroundColor="#0f1216"
+        nodeThreeObject={nodeThreeObject}
+        nodeThreeObjectExtend
+        linkWidth={linkWidth}
+        linkColor={linkColor}
+        linkMaterial={linkMaterial}
+        linkDirectionalParticles={linkDirectionalParticles}
+        linkDirectionalParticleSpeed={linkDirectionalParticleSpeed}
+        linkDirectionalParticleWidth={linkDirectionalParticleWidth}
+        linkCurvature={linkCurvature}
+        linkCurveRotation={linkCurveRotation}
+        linkDirectionalArrowLength={4}
+        linkDirectionalArrowRelPos={0.6}
+        onEngineStop={() => {
+          fgRef.current?.scene()?.traverse((obj) => {
+            if (obj.type === "Line" || obj.type === "LineSegments") obj.computeLineDistances?.();
+          });
+        }}
+        onNodeClick={handleNodeClick}
+        onBackgroundClick={handleBackgroundClick}
+        enableNodeDrag={false}
+        showNavInfo={false}
+        warmupTicks={18}
+        cooldownTicks={70}
+        d3AlphaDecay={0.028}
+        d3VelocityDecay={0.35}
+      />
+    </div>
+  );
+}

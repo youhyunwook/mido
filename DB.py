@@ -7,7 +7,7 @@ from neo4j import GraphDatabase
 URI = "neo4j+s://eff16eb9.databases.neo4j.io"
 USERNAME = "neo4j"
 PASSWORD = "_G6MBldCj1gGO_hWjogaMJpleFbjuSZKlMHohGucVrA"
-
+# ==================================
 class Neo4jConnector:
     def __init__(self, uri, user, password):
         self.driver = GraphDatabase.driver(uri, auth=(user, password))
@@ -32,6 +32,16 @@ class Neo4jConnector:
             # 뷰에 따라 쿼리 다르게
             if activeView == "externalInternal":
                 query = "MATCH (n)-[r]->(t) WHERE n.project = 'internal' AND t.project = 'internal' RETURN n, r, t ORDER BY rand()"
+            elif activeView.startswith("zone"):
+                
+                try:
+                    zone_num = int(activeView.replace("zone", ""))
+                except Exception:
+                    zone_num = None
+                if zone_num is not None:
+                    query = f"MATCH (n)-[r]->(t) WHERE n.zone = {zone_num} AND t.zone = {zone_num} RETURN n, r, t ORDER BY rand()"
+                else:
+                    query = "MATCH (n)-[r]->(t) RETURN n, r, t LIMIT 7"
             elif activeView in {"target", "active"}:
                 query = "MATCH (n)-[r]->(t) RETURN n, r, t LIMIT 7"
             else:

@@ -5,6 +5,7 @@ import DashboardMenu from "./DashboardMenu";
 import NetworkTopology from "./network_topology.jsx";
 import TestPage from "./TestPage.jsx";
 import Cyber3Layer from "./cyber_3layer.jsx";
+import ZonePage from "./zones/ZonePage";
 
 import "../App.css";
 

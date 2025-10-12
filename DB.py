@@ -1,16 +1,16 @@
+from typing import Optional
+
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from neo4j import GraphDatabase
 from neo4j.exceptions import ServiceUnavailable, AuthError
 
-
-
 # ===== Neo4j Aura 접속 설정 =====
 URI = "neo4j+ssc://eff16eb9.databases.neo4j.io"
 USERNAME = "neo4j"
 PASSWORD = "_G6MBldCj1gGO_hWjogaMJpleFbjuSZKlMHohGucVrA"
-DBNAME = "neo4j"  
+DBNAME = "neo4j"
 # ==================================
 
 app = FastAPI()
@@ -22,13 +22,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
 def _suggest_bolt(uri: str) -> str:
-    """neo4j:// 또는 neo4j+s:// 를 bolt:// / bolt+s:// 로 치환 (단일 서버 대비)"""
+    """neo4j:// 계열 -> bolt:// 계열로 치환"""
     if uri.startswith("neo4j+s://"):
-        return "bolt+s://" + uri[len("neo4j+s://") :]
+        return "bolt+s://" + uri[len("neo4j+s://"):]
+    if uri.startswith("neo4j+ssc://"):
+        return "bolt+ssc://" + uri[len("neo4j+ssc://"):]
     if uri.startswith("neo4j://"):
-        return "bolt://" + uri[len("neo4j://") :]
+        return "bolt://" + uri[len("neo4j://"):]
     return uri
 
 
@@ -40,14 +41,12 @@ class Neo4jConnector:
         self.driver = self._connect_driver()
 
     def _connect_driver(self):
-        # 1) 기본 연결 시도 + verify_connectivity()
         try:
             drv = GraphDatabase.driver(self.uri, auth=(self.user, self.password))
             drv.verify_connectivity()
             return drv
         except ServiceUnavailable:
-            # 2) 라우팅 실패 시 bolt(+s)로 자동 재시도
-            if self.uri.startswith("neo4j://") or self.uri.startswith("neo4j+s://"):
+            if self.uri.startswith(("neo4j://", "neo4j+s://", "neo4j+ssc://")):
                 alt = _suggest_bolt(self.uri)
                 drv = GraphDatabase.driver(alt, auth=(self.user, self.password))
                 drv.verify_connectivity()
@@ -63,16 +62,21 @@ class Neo4jConnector:
         except Exception:
             pass
 
-    # --------------
-    # Core fetch
-    # --------------
-    def fetch_nodes(self, activeView: str = "default"):
+    # ---------------- Core ----------------
+    def fetch_nodes(self, activeView: str = "default", project: Optional[str] = None):
+        """
+        activeView:
+          - default / physical / logical / persona
+          - 3layer / cyber3layer / threelayer  ⟵ HOSTS + USES 둘 다
+          - externalInternal / internalOnly / externalOnly
+          - zone3 / zone3_strict
+          - subnet:10.0.0.0/24
+        """
         def safe_serialize(obj):
             try:
                 d = dict(obj)
             except Exception:
                 d = {}
-            # labels / element id
             try:
                 d["__labels"] = list(getattr(obj, "labels", []))
             except Exception:
@@ -81,35 +85,108 @@ class Neo4jConnector:
                 d["__element_id"] = getattr(obj, "element_id", None)
             except Exception:
                 d["__element_id"] = None
-            # normalize id
             if "id" not in d:
                 d["id"] = d.get("__element_id") or d.get("ip") or d.get("name")
+            # layer 힌트(라벨→소문자) 추가
+            try:
+                labs = [lab.lower() for lab in d.get("__labels", [])]
+                for cand in ("physical", "logical", "persona"):
+                    if cand in labs:
+                        d["layer"] = cand
+                        break
+            except Exception:
+                pass
             return d
 
-        base_match = "MATCH (n:Device)-[r:CONNECTED]->(t:Device)"
+        def pick_id(props, raw):
+            return (
+                props.get("id")
+                or getattr(raw, "element_id", None)
+                or props.get("ip")
+                or props.get("name")
+            )
+
+        # === (A) 3계층: HOSTS + USES 모두 조회 ===
+        if activeView in {"3layer", "cyber3layer", "threelayer"}:
+            # project 필터는 선택적
+            params = {"project": project} if project else {}
+            query = """
+            // Physical -> Logical
+            CALL {
+              WITH $project AS p
+              MATCH p1 = (ph:Physical)-[r1:HOSTS]->(lg:Logical)
+              WHERE p IS NULL
+                 OR coalesce(ph.project,'') = p
+                 OR coalesce(lg.project,'') = p
+              RETURN p1 AS p, 'HOSTS' AS rel_type
+              LIMIT 400
+            }
+            UNION ALL
+            // Logical -> Persona
+            CALL {
+              WITH $project AS p
+              MATCH p2 = (lg:Logical)-[r2:USES]->(pr:Persona)
+              WHERE p IS NULL
+                 OR coalesce(lg.project,'') = p
+                 OR coalesce(pr.project,'') = p
+              RETURN p2 AS p, 'USES' AS rel_type
+              LIMIT 400
+            }
+            RETURN p, rel_type
+            LIMIT 800
+            """
+            records = []
+            with self.driver.session(database=DBNAME) as session:
+                result = session.run(query, **params)
+                for rec in result:
+                    path = rec.get("p")
+                    rel_type = rec.get("rel_type")
+                    if not path or not path.relationships:
+                        continue
+                    n_obj = path.start_node
+                    t_obj = path.end_node
+                    r_obj = path.relationships[0]
+
+                    src = safe_serialize(n_obj) if n_obj else {}
+                    dst = safe_serialize(t_obj) if t_obj else {}
+                    edge = dict(r_obj) if r_obj else {}
+                    edge["rel"] = rel_type  # "HOSTS" | "USES"
+
+                    sid = pick_id(src, n_obj)
+                    tid = pick_id(dst, t_obj)
+                    src["id"], dst["id"] = sid, tid
+                    edge["sourceIP"], edge["targetIP"] = sid, tid
+
+                    records.append({"src_IP": src, "dst_IP": dst, "edge": edge})
+            return records
+
+        # === (B) 그 외 뷰(기존) ===
         where_parts, params = [], {}
         order_clause = "ORDER BY rand()"
         limit_clause = "LIMIT 300"
 
-        # ----- activeView 스위치 -----
-        if activeView == "externalInternal":
-            where_parts.append("n.project <> t.project")
-        elif activeView == "internalOnly":
-            where_parts.append("n.project = 'internal' AND t.project = 'internal'")
-        elif activeView == "externalOnly":
-            where_parts.append("n.project = 'external' AND t.project = 'external'")
-        elif activeView in {"physical", "logical"}:
+        base = """
+        MATCH (n:Device)-[r]->(t:Device)
+        WITH n, r, t, toLower(coalesce(r.type, r.layer, TYPE(r))) AS _layer
+        """
+
+        if activeView in {"physical", "logical", "persona"}:
             params["rtype"] = activeView
-            where_parts.append("coalesce(r.type, '') = $rtype")
+            where_parts.append("_layer = $rtype")
+        elif activeView == "externalInternal":
+            where_parts.append("coalesce(n.project,'') <> coalesce(t.project,'')")
+        elif activeView == "internalOnly":
+            where_parts.append("coalesce(n.project,'') = 'internal' AND coalesce(t.project,'') = 'internal'")
+        elif activeView == "externalOnly":
+            where_parts.append("coalesce(n.project,'') = 'external' AND coalesce(t.project,'') = 'external'")
         elif activeView.startswith("zone"):
             strict = activeView.endswith("_strict")
             num_part = activeView.replace("zone", "").replace("_strict", "")
             try:
                 params["zone"] = int(num_part)
-                if strict:
-                    where_parts.append("n.zone = $zone AND t.zone = $zone")
-                else:
-                    where_parts.append("n.zone = $zone OR t.zone = $zone")
+                where_parts.append(
+                    "n.zone = $zone AND t.zone = $zone" if strict else "n.zone = $zone OR t.zone = $zone"
+                )
             except ValueError:
                 pass
         elif activeView.startswith("subnet:"):
@@ -120,11 +197,11 @@ class Neo4jConnector:
 
         where_clause = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
         query = f"""
-            {base_match}
+            {base}
             {where_clause}
             {order_clause}
             {limit_clause}
-            RETURN n, r, t
+            RETURN n, r, t, _layer
         """
 
         records = []
@@ -134,19 +211,13 @@ class Neo4jConnector:
                 n_obj = rec.get("n")
                 t_obj = rec.get("t")
                 r_obj = rec.get("r")
+                layer = rec.get("_layer")
 
                 src = safe_serialize(n_obj) if n_obj else {}
                 dst = safe_serialize(t_obj) if t_obj else {}
                 edge = dict(r_obj) if r_obj else {}
-
-                # choose stable ids for FG
-                def pick_id(props, raw):
-                    return (
-                        props.get("id")
-                        or getattr(raw, "element_id", None)
-                        or props.get("ip")
-                        or props.get("name")
-                    )
+                if layer:
+                    edge["layer"] = layer
 
                 sid = pick_id(src, n_obj)
                 tid = pick_id(dst, t_obj)
@@ -157,11 +228,13 @@ class Neo4jConnector:
         return records
 
 
+# ------------------ Routes ------------------
+
 @app.get("/neo4j/nodes")
-def get_nodes(activeView: str = "default"):
+def get_nodes(activeView: str = "default", project: Optional[str] = None):
     neo4j = Neo4jConnector(URI, USERNAME, PASSWORD)
     try:
-        data = neo4j.fetch_nodes(activeView)
+        data = neo4j.fetch_nodes(activeView, project)
         return JSONResponse(content=data)
     except AuthError as e:
         raise HTTPException(status_code=401, detail=f"Neo4j auth failed: {e}")

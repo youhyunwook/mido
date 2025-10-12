@@ -4,18 +4,11 @@ import * as THREE from "three";
 
 import ZonePage from "./zones/ZonePage";
 
-// - 네트워크 토폴로지 — 좌측 사이드바 필터
-// - 세로(좌측) 툴바로 존 필터링 (메뉴형)
-// - 미지정 존 노드는 선택 존의 1-홉 이웃이면 포함
-// - CORE는 포함 노드와 연결되어 있으면 자동 포함
-// - 레이아웃: 존별 원형 토폴로지, 방화벽은 CORE 근처 중앙 집중 및 연결 존 방향 배치
-// - useMemo 캐시로 지오메트리/머티리얼 공유
-
 // ------------------------------
-// 1) 데이터 fetch & 정규화 
+// 1) 데이터 fetch & 정규화
 // ------------------------------
-async function fetchNetworkData(activeView = "externalInternal") {
-  const res = await fetch(`http://localhost:8000/neo4j/nodes?activeView=${activeView}`);
+async function fetchNetworkData(activeView = "default") {
+  const res = await fetch(`http://localhost:8000/neo4j/nodes?activeView=${encodeURIComponent(activeView)}`);
   const data = await res.json();
 
   const nodesMap = new Map();
@@ -51,7 +44,9 @@ async function fetchNetworkData(activeView = "externalInternal") {
     const a = String(l.source);
     const b = String(l.target);
     const key = a < b ? `${a}__${b}__${l.type || ""}` : `${b}__${a}__${l.type || ""}`;
-    if (seen.has(key)) continue; seen.add(key); links.push(l);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    links.push(l);
   }
 
   const TYPE_COLORS = {
@@ -92,14 +87,14 @@ function buildAdjacency(links) { const m = new Map(); links.forEach((l) => { con
 // 3) 레이아웃: 존별 원형 토폴로지 + 중앙 집중 방화벽
 // ------------------------------
 const LAYOUT = {
-  ZONE_RADIUS: 600, // 존의 반지름
-  ROLE_BASE_R: 46, // 존 내 역할별 노드 배치 기본 반지름
-  ROLE_STEP_R: 26, // 존 내 역할별 노드 배치 반지름 증가폭
-  FW_R_RATIO: 0.35, // 존 반지름 대비 방화벽 배치 반지름 비율
-  FW_SPREAD: 10, // 방화벽 간격 조정
+  ZONE_RADIUS: 600,
+  ROLE_BASE_R: 46,
+  ROLE_STEP_R: 26,
+  FW_R_RATIO: 0.35,
+  FW_SPREAD: 10,
   DEPTH_Z: { firewall: 51, router: 41, l3switch: 27, switchrouter: 27, layer3: 27, switch: 14, server: 0, host: -14, hub: -14, default: -7 },
-  OUTER_RING_MULT: 9, // 방화벽 배치 반지름 산출용 상수
-  ZONE_GAP_MARGIN: 60 //  존 간격 여유
+  OUTER_RING_MULT: 9,
+  ZONE_GAP_MARGIN: 60
 };
 
 function computeZoneCenters(zones) {
@@ -112,7 +107,7 @@ function computeZoneCenters(zones) {
   const OUTER_R = LAYOUT.ROLE_BASE_R + LAYOUT.ROLE_STEP_R * LAYOUT.OUTER_RING_MULT;
   let R = baseR;
   if (n > 1) {
-    const s = Math.sin(Math.PI / n) || 0.001; // chord = 2 * R * s
+    const s = Math.sin(Math.PI / n) || 0.001;
     const needed = (OUTER_R + LAYOUT.ZONE_GAP_MARGIN / 2) / s;
     R = Math.max(baseR, Math.ceil(needed));
   }
@@ -134,7 +129,8 @@ function applyTopologyLayout(g, centers) {
     if (z === null) return; const c = centers.get(z) || { x: 0, y: 0, z: 0 };
     const groups = new Map(); nodes.forEach((n) => { const key = roleOrder.includes(n.kind) ? n.kind : "default"; if (!groups.has(key)) groups.set(key, []); groups.get(key).push(n); });
     const baseR = LAYOUT.ROLE_BASE_R; const stepR = LAYOUT.ROLE_STEP_R;
-    roleOrder.forEach((role, ringIdx) => { const arr = groups.get(role); if (!arr || !arr.length) return; const Rrole = baseR + stepR * ringIdx; const N = arr.length; const angStep = (2 * Math.PI) / N; for (let i = 0; i < N; i++) { const theta = i * angStep; const x = c.x + Rrole * Math.cos(theta); const y = c.y + Rrole * Math.sin(theta); const zpos = c.z + (LAYOUT.DEPTH_Z[role] ?? 0); anchorNode(arr[i], { x, y, z: zpos }); } });
+    roleOrder.forEach((role, ringIdx) => { const arr = groups.get(role); if (!arr || !arr.length) return; const Rrole = baseR + stepR * ringIdx; const N = arr.length; const angStep = (2 * Math.PI) / N;
+      for (let i = 0; i < N; i++) { const theta = i * angStep; const x = c.x + Rrole * Math.cos(theta); const y = c.y + Rrole * Math.sin(theta); const zpos = c.z + (LAYOUT.DEPTH_Z[role] ?? 0); anchorNode(arr[i], { x, y, z: zpos }); } });
   });
   const anyZone = Array.from(centers.entries()).find(([z]) => z !== null);
   const measuredR = anyZone ? Math.hypot(anyZone[1].x, anyZone[1].y) : LAYOUT.ZONE_RADIUS;
@@ -142,8 +138,30 @@ function applyTopologyLayout(g, centers) {
   const firewallNodes = g.nodes.filter((n) => n.kind === "firewall");
   const zoneVec = (z) => { const c = centers.get(z); if (!c) return { x: 0, y: 0 }; const dx = c.x; const dy = c.y; const len = Math.hypot(dx, dy) || 1; return { x: dx / len, y: dy / len }; };
   const zoneWeightsByFirewall = new Map();
-  g.links.forEach((l) => { const a = idOf(l.source); const b = idOf(l.target); const na = byId.get(a); const nb = byId.get(b); if (!na || !nb) return; if (na.kind === "firewall" && nb.zone !== null && nb.zone !== undefined) { if (!zoneWeightsByFirewall.has(na.id)) zoneWeightsByFirewall.set(na.id, new Map()); const m = zoneWeightsByFirewall.get(na.id); m.set(nb.zone, (m.get(nb.zone) || 0) + 1); } else if (nb.kind === "firewall" && na.zone !== null && na.zone !== undefined) { if (!zoneWeightsByFirewall.has(nb.id)) zoneWeightsByFirewall.set(nb.id, new Map()); const m = zoneWeightsByFirewall.get(nb.id); m.set(na.zone, (m.get(na.zone) || 0) + 1); } });
-  firewallNodes.forEach((fw, idx) => { const weights = zoneWeightsByFirewall.get(fw.id); let vx = 0, vy = 0; if (weights && weights.size) { weights.forEach((w, z) => { const v = zoneVec(z); vx += v.x * w; vy += v.y * w; }); } else { const ang = ((hashId(fw.id) % 628) / 100); vx = Math.cos(ang); vy = Math.sin(ang); } const vlen = Math.hypot(vx, vy) || 1; vx /= vlen; vy /= vlen; const tangent = Math.atan2(vy, vx) + Math.PI / 2; const offsetMag = (idx % 2 === 0 ? 1 : -1) * Math.floor(idx / 2) * LAYOUT.FW_SPREAD; const x = 0 + vx * FW_R + Math.cos(tangent) * offsetMag; const y = 0 + vy * FW_R + Math.sin(tangent) * offsetMag; const z = 0 + (LAYOUT.DEPTH_Z.firewall || 0); anchorNode(fw, { x, y, z }); });
+  g.links.forEach((l) => {
+    const a = idOf(l.source); const b = idOf(l.target);
+    const na = byId.get(a); const nb = byId.get(b); if (!na || !nb) return;
+    if (na.kind === "firewall" && nb.zone !== null && nb.zone !== undefined) {
+      if (!zoneWeightsByFirewall.has(na.id)) zoneWeightsByFirewall.set(na.id, new Map());
+      const m = zoneWeightsByFirewall.get(na.id); m.set(nb.zone, (m.get(nb.zone) || 0) + 1);
+    } else if (nb.kind === "firewall" && na.zone !== null && na.zone !== undefined) {
+      if (!zoneWeightsByFirewall.has(nb.id)) zoneWeightsByFirewall.set(nb.id, new Map());
+      const m = zoneWeightsByFirewall.get(nb.id); m.set(na.zone, (m.get(na.zone) || 0) + 1);
+    }
+  });
+  firewallNodes.forEach((fw, idx) => {
+    const weights = zoneWeightsByFirewall.get(fw.id);
+    let vx = 0, vy = 0;
+    if (weights && weights.size) { weights.forEach((w, z) => { const v = zoneVec(z); vx += v.x * w; vy += v.y * w; }); }
+    else { const ang = ((hashId(fw.id) % 628) / 100); vx = Math.cos(ang); vy = Math.sin(ang); }
+    const vlen = Math.hypot(vx, vy) || 1; vx /= vlen; vy /= vlen;
+    const tangent = Math.atan2(vy, vx) + Math.PI / 2;
+    const offsetMag = (idx % 2 === 0 ? 1 : -1) * Math.floor(idx / 2) * LAYOUT.FW_SPREAD;
+    const x = 0 + vx * FW_R + Math.cos(tangent) * offsetMag;
+    const y = 0 + vy * FW_R + Math.sin(tangent) * offsetMag;
+    const z = 0 + (LAYOUT.DEPTH_Z.firewall || 0);
+    anchorNode(fw, { x, y, z });
+  });
 }
 
 // ------------------------------
@@ -160,10 +178,14 @@ function buildFilteredGraph(fullGraph, selectedZones) {
   const linkStage1 = fullGraph.links.filter((l) => inSelectedZone.has(idOf(l.source)) || inSelectedZone.has(idOf(l.target)));
   const nodeIds = new Set([...inSelectedZone]);
   linkStage1.forEach((l) => { nodeIds.add(idOf(l.source)); nodeIds.add(idOf(l.target)); });
-  // CORE auto-include if connected to included nodes
   const coreIds = new Set(fullGraph.nodes.filter((n) => n.kind === "core").map((n) => n.id));
   if (coreIds.size) {
-    fullGraph.links.forEach((l) => { const a = idOf(l.source); const b = idOf(l.target); if ((coreIds.has(a) && nodeIds.has(b)) || (coreIds.has(b) && nodeIds.has(a))) { nodeIds.add(a); nodeIds.add(b); } });
+    fullGraph.links.forEach((l) => {
+      const a = idOf(l.source); const b = idOf(l.target);
+      if ((coreIds.has(a) && nodeIds.has(b)) || (coreIds.has(b) && nodeIds.has(a))) {
+        nodeIds.add(a); nodeIds.add(b);
+      }
+    });
   }
   const links = fullGraph.links.filter((l) => nodeIds.has(idOf(l.source)) && nodeIds.has(idOf(l.target)));
   const nodes = fullGraph.nodes.filter((n) => nodeIds.has(n.id) || zonesSet.has(normalizeZoneVal(n.zone)));
@@ -173,24 +195,52 @@ function buildFilteredGraph(fullGraph, selectedZones) {
 // ------------------------------
 // 5) 컴포넌트
 // ------------------------------
-export default function NetworkTopology3D_LeftSidebar({ activeView = "externalInternal", onInspectorChange }) {
+export default function NetworkTopology3D_LeftSidebar({ activeView = "default", onInspectorChange }) {
   const fgRef = useRef(null);
   const [graph, setGraph] = useState({ nodes: [], links: [] });
   const [selected, setSelected] = useState(null);
 
-  useEffect(() => {
-    fetchNetworkData(activeView).then((g) => {
-      const deg = new Map(); g.links.forEach((l) => { deg.set(idOf(l.source), (deg.get(idOf(l.source)) || 0) + 1); deg.set(idOf(l.target), (deg.get(idOf(l.target)) || 0) + 1); }); g.nodes.forEach((n) => (n.__deg = deg.get(n.id) || 0));
-      const zonesFetched = Array.from(new Set(g.nodes.map((n) => n.zone))); const centersFetched = computeZoneCenters(zonesFetched); applyTopologyLayout(g, centersFetched); setGraph(g);
-    });
-  }, [activeView]);
+  // === 쿼리(View) 상태 ===
+  const [view, setView] = useState(activeView);
+  useEffect(() => { setView(activeView); }, [activeView]);
 
-  const allZones = useMemo(() => { const set = new Set(); graph.nodes.forEach((n) => { const z = normalizeZoneVal(n.zone); if (z !== null && !Number.isNaN(z)) set.add(z); }); return Array.from(set).sort((a, b) => a - b); }, [graph.nodes]);
-  const countByZone = useMemo(() => { const m = new Map(); allZones.forEach((z) => m.set(z, 0)); graph.nodes.forEach((n) => { const z = normalizeZoneVal(n.zone); if (m.has(z)) m.set(z, (m.get(z) || 0) + 1); }); return m; }, [graph.nodes, allZones]);
+  useEffect(() => {
+    fetchNetworkData(view).then((g) => {
+      const deg = new Map();
+      g.links.forEach((l) => {
+        deg.set(idOf(l.source), (deg.get(idOf(l.source)) || 0) + 1);
+        deg.set(idOf(l.target), (deg.get(idOf(l.target)) || 0) + 1);
+      });
+      g.nodes.forEach((n) => (n.__deg = deg.get(n.id) || 0));
+      const zonesFetched = Array.from(new Set(g.nodes.map((n) => n.zone)));
+      const centersFetched = computeZoneCenters(zonesFetched);
+      applyTopologyLayout(g, centersFetched);
+      setGraph(g);
+      setSelected(null);
+    });
+  }, [view]);
+
+  const allZones = useMemo(() => {
+    const set = new Set();
+    graph.nodes.forEach((n) => {
+      const z = normalizeZoneVal(n.zone);
+      if (z !== null && !Number.isNaN(z)) set.add(z);
+    });
+    return Array.from(set).sort((a, b) => a - b);
+  }, [graph.nodes]);
+
+  const countByZone = useMemo(() => {
+    const m = new Map(); allZones.forEach((z) => m.set(z, 0));
+    graph.nodes.forEach((n) => {
+      const z = normalizeZoneVal(n.zone);
+      if (m.has(z)) m.set(z, (m.get(z) || 0) + 1);
+    });
+    return m;
+  }, [graph.nodes, allZones]);
+
   const [selectedZones, setSelectedZones] = useState([]);
   useEffect(() => { setSelectedZones(allZones); }, [allZones]);
 
-  
   const [activeZone, setActiveZone] = useState(null);
   const filtered = useMemo(() => buildFilteredGraph(graph, selectedZones), [graph, selectedZones]);
   const adjacency = useMemo(() => buildAdjacency(filtered.links), [filtered.links]);
@@ -199,7 +249,7 @@ export default function NetworkTopology3D_LeftSidebar({ activeView = "externalIn
   const isHLNode = (n) => selectedId && (n.id === selectedId || adjacency.get(selectedId)?.has(n.id));
   const isIncident = (l) => selectedId && (idOf(l.source) === selectedId || idOf(l.target) === selectedId);
 
-  // node Inspector (클릭시 나오는 노드 정보)
+  // node Inspector
   useEffect(() => {
     const inspectorJsx = (
       <div className="h-[78vh] rounded-xl bg-white/95 p-3 overflow-auto">
@@ -220,14 +270,14 @@ export default function NetworkTopology3D_LeftSidebar({ activeView = "externalIn
             </tbody>
           </table>
         ) : (
-          <p className="text-gray-500"></p> // 노드 미선택시 나오는 디폴트 메시지
+          <p className="text-gray-500"></p>
         )}
       </div>
     );
     onInspectorChange?.(inspectorJsx);
   }, [selected, onInspectorChange, adjacency]);
 
-// Three.js 지오메트리 & 머티리얼 공유
+  // Three.js 지오메트리 & 머티리얼 공유
   const geoCache = useMemo(() => ({
     torus: new THREE.TorusGeometry(7, 1.6, 16, 32),
     cone: new THREE.ConeGeometry(4.2, 9, 10),
@@ -251,11 +301,12 @@ export default function NetworkTopology3D_LeftSidebar({ activeView = "externalIn
 
   const getBaseMat = (hex) => { let m = nodeMatCache.base.get(hex); if (!m) { m = new THREE.MeshStandardMaterial({ color: new THREE.Color(hex), metalness: 0.25, roughness: 0.72 }); nodeMatCache.base.set(hex, m); } return m; };
 
+  // === 링크 머티리얼 (logical = 점선, physical = 실선) ===
   const linkMats = useMemo(() => ({
-    dashed: new THREE.LineDashedMaterial({ color: 0x87aafc, dashSize: 2, gapSize: 2, transparent: true, opacity: 0.95 }),
-    dashedInc: new THREE.LineDashedMaterial({ color: 0x3a6fe2, dashSize: 2, gapSize: 2, transparent: true, opacity: 0.95 }),
-    basic: new THREE.LineBasicMaterial({ color: 0xa9b9ff }),
-    basicInc: new THREE.LineBasicMaterial({ color: 0x3a6fe2 }),
+    dashed: new THREE.LineDashedMaterial({ color: 0x87aafc, dashSize: 2.2, gapSize: 2.2, transparent: true, opacity: 0.95 }),
+    dashedInc: new THREE.LineDashedMaterial({ color: 0x3a6fe2, dashSize: 2.2, gapSize: 2.2, transparent: true, opacity: 0.95 }),
+    basic: new THREE.MeshBasicMaterial({ color: 0xa9b9ff }),
+    basicInc: new THREE.MeshBasicMaterial({ color: 0x3a6fe2 })
   }), []);
 
   function nodeThreeObject(node) {
@@ -267,7 +318,12 @@ export default function NetworkTopology3D_LeftSidebar({ activeView = "externalIn
     else if (node.kind === "firewall") mesh = new THREE.Mesh(geoCache.cone, mat);
     else if (node.kind === "router") mesh = new THREE.Mesh(geoCache.cylinder, mat);
     else if (node.kind === "switch" || node.kind === "l2switch") mesh = new THREE.Mesh(geoCache.box, mat);
-    else if (node.kind === "l3switch" || node.kind === "switchrouter" || node.kind === "layer3") { const baseBox = new THREE.Mesh(geoCache.box, mat); const topCyl = new THREE.Mesh(geoCache.l3top, mat); topCyl.position.y = 2.6; const g = new THREE.Group(); g.add(baseBox); g.add(topCyl); mesh = g; }
+    else if (node.kind === "l3switch" || node.kind === "switchrouter" || node.kind === "layer3") {
+      const baseBox = new THREE.Mesh(geoCache.box, mat);
+      const topCyl = new THREE.Mesh(geoCache.l3top, mat);
+      topCyl.position.y = 2.6;
+      const g = new THREE.Group(); g.add(baseBox); g.add(topCyl); mesh = g;
+    }
     else if (node.kind === "hub") mesh = new THREE.Mesh(geoCache.octa, mat);
     else mesh = new THREE.Mesh(geoCache.sphere, mat);
     const s = node.kind === "core" ? 1.4 : Math.max(0.9, Math.min(1.8, 0.95 + (node.__deg || 0) * 0.06));
@@ -279,9 +335,26 @@ export default function NetworkTopology3D_LeftSidebar({ activeView = "externalIn
 
   const isLogicalLink = (l) => String(l.type || "").toLowerCase() === "logical";
   const isPhysicalLink = (l) => String(l.type || "").toLowerCase() === "physical";
-  const linkWidth = (l) => selectedId ? (isIncident(l) ? 3 : isPhysicalLink(l) ? 1.7 : 1.0) : isPhysicalLink(l) ? 1.9 : 1.1;
-  const linkColor = (l) => selectedId ? (isIncident(l) ? "#3a6fe2" : isLogicalLink(l) ? "#87aafc" : "#7f90b8") : isLogicalLink(l) ? "#87aafc" : "#a9b9ff";
-  const linkMaterial = (l) => isLogicalLink(l) ? (selectedId && isIncident(l) ? linkMats.dashedInc : linkMats.dashed) : (selectedId && isIncident(l) ? linkMats.basicInc : linkMats.basic);
+
+  // ★ logical은 '라인(dashed)'로 보이게: linkWidth=0 고정
+  const linkWidth = (l) => {
+    if (isLogicalLink(l)) return 0;                         // dashed line
+    // physical은 실선(튜브) 굵기
+    return selectedId ? (isIncident(l) ? 3 : 1.7) : 1.9;
+  };
+
+  const linkMaterial = (l) => {
+    if (isLogicalLink(l)) {
+      return (selectedId && isIncident(l)) ? linkMats.dashedInc : linkMats.dashed;
+    }
+    return (selectedId && isIncident(l)) ? linkMats.basicInc : linkMats.basic;
+  };
+
+  // 색상은 보조(툴팁/레이블 없는 경우 대비)
+  const linkColor = (l) =>
+    selectedId ? (isIncident(l) ? (isLogicalLink(l) ? "#3a6fe2" : "#3a6fe2") : (isLogicalLink(l) ? "#87aafc" : "#7f90b8"))
+               : (isLogicalLink(l) ? "#87aafc" : "#a9b9ff");
+
   const linkDirectionalParticles = (l) => (selectedId ? (isIncident(l) ? 4 : 0) : isLogicalLink(l) ? 0 : 2);
   const linkDirectionalParticleSpeed = (l) => (isPhysicalLink(l) ? 0.006 : 0.0);
   const linkDirectionalParticleWidth = 1.2;
@@ -297,16 +370,30 @@ export default function NetworkTopology3D_LeftSidebar({ activeView = "externalIn
     const distRatio = 1 + distance / Math.hypot(node.x || 1, node.y || 1, node.z || 1);
     fgRef.current?.cameraPosition({ x: (node.x || 1) * distRatio, y: (node.y || 1) * distRatio, z: zFixed }, node, 900);
   }, [filtered.nodes, graph.nodes]);
-  useEffect(() => { const timer = setTimeout(() => { const core = graph.nodes.find((n) => n.kind === "core"); if (core) focusNodeById(core.id); }, 300); return () => clearTimeout(timer); }, [graph.nodes, focusNodeById]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const core = graph.nodes.find((n) => n.kind === "core");
+      if (core) focusNodeById(core.id);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [graph.nodes, focusNodeById]);
 
   const handleNodeClick = (n) => setSelected(n);
   const handleBackgroundClick = () => setSelected(null);
 
-  const toggleZone = (z) => { setSelected((prev) => (prev && normalizeZoneVal(prev.zone) === z ? null : prev)); setSelectedZones((prev) => { const set = new Set(prev); if (set.has(z)) set.delete(z); else set.add(z); return Array.from(set).sort((a,b)=>a-b); }); };
+  const toggleZone = (z) => {
+    setSelected((prev) => (prev && normalizeZoneVal(prev.zone) === z ? null : prev));
+    setSelectedZones((prev) => {
+      const set = new Set(prev);
+      if (set.has(z)) set.delete(z); else set.add(z);
+      return Array.from(set).sort((a,b)=>a-b);
+    });
+  };
   const selectAll = () => setSelectedZones(allZones);
   const selectNone = () => setSelectedZones([]);
 
-  // Spacebar+클릭으로 평면 이동 기능 
+  // Space+Drag for pan
   const spaceDownRef = useRef(false);
   useEffect(() => {
     const fg = fgRef.current;
@@ -318,7 +405,7 @@ export default function NetworkTopology3D_LeftSidebar({ activeView = "externalIn
     controls.enablePan = true;
     controls.screenSpacePanning = true;
     controls.listenToKeyEvents && controls.listenToKeyEvents(window);
-    controls.keyPanSpeed = 8.0; //
+    controls.keyPanSpeed = 8.0;
 
     const el = renderer.domElement;
     let space = false;
@@ -357,39 +444,87 @@ export default function NetworkTopology3D_LeftSidebar({ activeView = "externalIn
     };
   }, []);
 
-  // If a zone is selected, show ZonePage instead of the main topology
+  // 존 상세 페이지 토글
   if (activeZone !== null) {
     return <ZonePage zone={activeZone} onBack={() => setActiveZone(null)} />;
   }
 
   return (
     <div style={{width:'100%',height:'100vh',background:'linear-gradient(135deg,#0b0f18,#0a0c10)',borderRadius:0,overflow:'hidden',border:'1px solid rgba(255,255,255,0.10)',boxShadow:'0 8px 32px 0 #0006',display:'flex'}}>
-      {/* Left vertical toolbar (no Tailwind) */}
-  <aside style={{width:240,flex:'none',background:'rgba(0,0,0,0.30)',backdropFilter:'blur(6px)',borderRight:'1px solid rgba(255,255,255,0.10)',padding:16,display:'flex',flexDirection:'column',borderRadius:0}}>
+      {/* Left vertical toolbar */}
+      <aside style={{width:280,flex:'none',background:'rgba(0,0,0,0.30)',backdropFilter:'blur(6px)',borderRight:'1px solid rgba(255,255,255,0.10)',padding:16,display:'flex',flexDirection:'column',borderRadius:0}}>
+        {/* View(쿼리) 섹션 */}
         <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:12}}>
           <div style={{width:12,height:12,borderRadius:6,background:'#60a5fa',boxShadow:'0 0 4px #60a5fa'}}></div>
-          <span style={{fontSize:15,color:'#e5e7eb',fontWeight:600}}>Zones</span>
+          <span style={{fontSize:15,color:'#e5e7eb',fontWeight:600}}>View (쿼리)</span>
         </div>
 
+        {/* 상단: All 단독 버튼 */}
+        <div style={{display:'grid',gridTemplateColumns:'1fr',gap:6,marginBottom:10}}>
+          <button
+            onClick={()=>setView("default")}
+            style={{
+              padding:'8px 0',borderRadius:8,fontSize:13,
+              background:view==="default"?'#2563ebcc':'rgba(255,255,255,0.08)',
+              color:'#fff',border:'1px solid rgba(255,255,255,0.15)',cursor:'pointer'
+            }}
+          >
+            All
+          </button>
+        </div>
+
+        {/* 구분선 */}
+        <div style={{height:1, background:'rgba(255,255,255,0.10)', margin:'6px 0 10px'}} />
+
+        {/* 하단: Link Type (Physical / Logical) - 내부 버튼 제거 */}
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8}}>
+          <span style={{fontSize:13, color:'#cbd5e1'}}>Link Type</span>
+        </div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6,marginBottom:14}}>
+          <button
+            onClick={()=>setView("physical")}
+            style={{
+              padding:'7px 0',borderRadius:8,fontSize:12,
+              background:view==="physical"?'#2563ebcc':'rgba(255,255,255,0.08)',
+              color:'#fff',border:'1px solid rgba(255,255,255,0.15)',cursor:'pointer'
+            }}
+            title="물리 링크만 보기"
+          >
+            Physical
+          </button>
+          <button
+            onClick={()=>setView("logical")}
+            style={{
+              padding:'7px 0',borderRadius:8,fontSize:12,
+              background:view==="logical"?'#2563ebcc':'rgba(255,255,255,0.08)',
+              color:'#fff',border:'1px solid rgba(255,255,255,0.15)',cursor:'pointer'
+            }}
+            title="논리 링크(점선)만 보기"
+          >
+            Logical
+          </button>
+        </div>
+
+        {/* 뷰 초기화 */}
         <div style={{display:'flex',gap:8,marginBottom:12}}>
           <button onClick={() => {
-            // 뷰 초기화: 코어 노드 중심으로 카메라 이동 및 선택/존 리셋
             setSelected(null);
             setSelectedZones(allZones);
+            setView("default"); // 초기 뷰 = All
             const core = graph.nodes.find((n) => n.kind === "core");
             if (core && fgRef.current) {
               const distance = 170;
               const zFixed = 680;
               const distRatio = 1 + distance / Math.hypot(core.x || 1, core.y || 1, core.z || 1);
               fgRef.current.cameraPosition({ x: (core.x || 1) * distRatio, y: (core.y || 1) * distRatio, z: zFixed }, core, 800);
-            } else if (fgRef.current) {
-              const camPos = { x:0, y:0, z:2100 };
-              const camLook = { x:400, y:600, z:-300 };
-              console.log('뷰초기화 카메라 위치:', camPos, '카메라 타겟:', camLook);
-              fgRef.current.cameraPosition(camPos, camLook, 800);
-              
             }
-          }} style={{flex:1,padding:'7px 0',marginRight:'4px', borderRadius:0,fontSize:13,background:'#2563ebcc',color:'#fff',border:'1px solid #3b82f6',cursor:'pointer'}}>뷰 초기화</button>
+          }} style={{flex:1,padding:'7px 0', borderRadius:8,fontSize:13,background:'#2563ebcc',color:'#fff',border:'1px solid #3b82f6',cursor:'pointer'}}>뷰 초기화</button>
+        </div>
+
+        {/* Zones 목록 */}
+        <div style={{display:'flex',alignItems:'center',gap:8,margin:'8px 0 10px'}}>
+          <div style={{width:12,height:12,borderRadius:6,background:'#60a5fa',boxShadow:'0 0 4px #60a5fa'}}></div>
+          <span style={{fontSize:15,color:'#e5e7eb',fontWeight:600}}>Zones</span>
         </div>
 
         <div style={{flex:1,overflowY:'auto',paddingRight:4}}>
@@ -397,26 +532,39 @@ export default function NetworkTopology3D_LeftSidebar({ activeView = "externalIn
             const active = selectedZones.includes(z);
             const ct = countByZone.get(z) || 0;
             return (
-              <button
-                key={z}
-                onClick={() => setActiveZone(z)}
-                style={{
-                  width:'100%',textAlign:'left',padding:'10px 14px',borderRadius:0,fontSize:13,marginBottom:6,border:'1px solid '+(active?'#3b82f6':'#e5e7eb22'),background:active?'#2563ebcc':'rgba(255,255,255,0.05)',color:active?'#fff':'#cbd5e1',fontWeight:active?600:400,boxShadow:active?'0 2px 8px 0 #2563eb33':'none',transition:'all 0.15s',cursor:'pointer'
-                }}
-              >
-                <div style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}>
-                  <span>Zone {z}</span>
-                  <span style={{fontSize:11,padding:'2px 8px',borderRadius:0,background:active?'rgba(255,255,255,0.20)':'rgba(255,255,255,0.10)',color:'#fff'}}>{ct}</span>
+              <div key={z} style={{border:'1px solid '+(active?'#3b82f6':'#e5e7eb22'),borderRadius:8,marginBottom:8,background:'rgba(255,255,255,0.05)'}}>
+                {/* 존 상세 보기(ZonePage) */}
+                <button
+                  onClick={() => setActiveZone(z)}
+                  style={{
+                    width:'100%',textAlign:'left',padding:'10px 14px',fontSize:13,color:active?'#fff':'#cbd5e1',fontWeight:active?600:400,background:'transparent',border:'none',cursor:'pointer'
+                  }}
+                >
+                  <div style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+                    <span>Zone {z}</span>
+                    <span style={{fontSize:11,padding:'2px 8px',borderRadius:999,background:'rgba(255,255,255,0.12)',color:'#fff'}}>{ct}</span>
+                  </div>
+                </button>
+
+                {/* 쿼리 바로 실행: zoneN / zoneN_strict */}
+                <div style={{display:'flex',gap:6,padding:'0 10px 10px'}}>
+                  <button
+                    onClick={()=>setView(`zone${z}`)}
+                    title="해당 존과 교차하는 엣지 포함"
+                    style={{flex:1,padding:'6px 0',borderRadius:8,fontSize:12,background:'rgba(255,255,255,0.08)',color:'#e5e7eb',border:'1px solid rgba(255,255,255,0.15)',cursor:'pointer'}}
+                  >simple</button>
+                  <button
+                    onClick={()=>setView(`zone${z}_strict`)}
+                    title="양끝 노드 모두 같은 존만"
+                    style={{flex:1,padding:'6px 0',borderRadius:8,fontSize:12,background:'rgba(255,255,255,0.08)',color:'#e5e7eb',border:'1px solid rgba(255,255,255,0.15)',cursor:'pointer'}}
+                  >detail</button>
                 </div>
-              </button>
+              </div>
             );
           })}
-
         </div>
 
-    
-
-        {/* Zone filter checkboxes moved to the very bottom */}
+        {/* Zone filter checkboxes (로컬 표시 제어) */}
         <div style={{marginTop:'auto',paddingTop:18}}>
           <div style={{marginBottom:10, fontSize:13, color:'#e5e7eb', fontWeight:600}}>Zone Filter</div>
           <form style={{display:'flex',flexDirection:'column',gap:6,marginBottom:10}}>
@@ -433,12 +581,11 @@ export default function NetworkTopology3D_LeftSidebar({ activeView = "externalIn
             ))}
           </form>
           <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:10}}>
-            <button onClick={selectAll} style={{flex:1,padding:'8px 0',borderRadius:0,fontSize:13,background:'rgba(255,255,255,0.10)',color:'#f1f5f9',border:'1px solid rgba(255,255,255,0.10)',cursor:'pointer'}}>All</button>
-            <button onClick={selectNone} style={{flex:1,padding:'8px 0',borderRadius:0,fontSize:13,background:'rgba(255,255,255,0.10)',color:'#f1f5f9',border:'1px solid rgba(255,255,255,0.10)',cursor:'pointer'}}>None</button>
+            <button onClick={selectAll}  style={{flex:1,padding:'8px 0',borderRadius:8,fontSize:13,background:'rgba(255,255,255,0.10)',color:'#f1f5f9',border:'1px solid rgba(255,255,255,0.10)',cursor:'pointer'}}>All</button>
+            <button onClick={selectNone} style={{flex:1,padding:'8px 0',borderRadius:8,fontSize:13,background:'rgba(255,255,255,0.10)',color:'#f1f5f9',border:'1px solid rgba(255,255,255,0.10)',cursor:'pointer'}}>None</button>
           </div>
           <div style={{marginTop:4,fontSize:12,color:'#94a3b8'}}>{filtered.nodes.length} nodes • {filtered.links.length} links</div>
         </div>
-        
       </aside>
 
       {/* Graph area */}
@@ -449,19 +596,23 @@ export default function NetworkTopology3D_LeftSidebar({ activeView = "externalIn
           backgroundColor="#0f1216"
           nodeThreeObject={nodeThreeObject}
           nodeThreeObjectExtend
-          linkWidth={linkWidth}
+          linkWidth={linkWidth}                       // ← logical: 0 (라인), physical: 튜브
           linkColor={linkColor}
-          linkMaterial={linkMaterial}
+          linkMaterial={linkMaterial}                 // ← logical: LineDashedMaterial
           linkDirectionalParticles={linkDirectionalParticles}
           linkDirectionalParticleSpeed={linkDirectionalParticleSpeed}
-          linkDirectionalParticleWidth={linkDirectionalParticleWidth}
+          linkDirectionalParticleWidth={1.2}
           linkCurvature={linkCurvature}
           linkCurveRotation={linkCurveRotation}
           linkDirectionalArrowLength={4}
           linkDirectionalArrowRelPos={0.6}
-          onEngineStop={() => { fgRef.current?.scene()?.traverse((obj) => { if (obj.type === "Line" || obj.type === "LineSegments") obj.computeLineDistances?.(); }); }}
-          onNodeClick={handleNodeClick}
-          onBackgroundClick={handleBackgroundClick}
+          onEngineStop={() => {
+            fgRef.current?.scene()?.traverse((obj) => {
+              if (obj.type === "Line" || obj.type === "LineSegments") obj.computeLineDistances?.();
+            });
+          }}
+          onNodeClick={(n)=>setSelected(n)}
+          onBackgroundClick={()=>setSelected(null)}
           enableNodeDrag={false}
           showNavInfo={false}
           warmupTicks={18}

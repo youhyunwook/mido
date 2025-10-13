@@ -5,7 +5,6 @@ import * as THREE from 'three';
 // ===================== 상수 =====================
 const STATUS = ['up', 'down', 'unknown'];
 const LAYER_COLORS = { physical: '#3BA3FF', logical: '#9B6BFF', persona: '#FF9E3B' };
-// 레이아웃 튜닝: 멀티레이어 시각화를 위해 분포 및 높이 확장
 const LAYOUT = {
   nodeSpread: 800,        // x/y 기본 분포 반경
   layerZ: { physical: -600, logical: 0, persona: 600 }, // 레이어별 z 분리 증가
@@ -24,7 +23,6 @@ const KIND_COLORS = {
 
 // 백엔드 API 베이스
 const API_BASE = (typeof process !== 'undefined' && process.env && process.env.REACT_APP_API_BASE) || 'http://localhost:8000';
-// 필요 시 프로젝트 필터 (없애려면 null로 변경)
 const PROJECT_FILTER = 'multi-layer'; // 또는 null
 
 // ===================== 유틸 =====================
@@ -95,18 +93,14 @@ function mergeRecordsToGraph(allRecords) {
   const links = [];
 
   for (const rec of allRecords) {
-    const sRaw = rec.src_IP || rec.n || rec.source; // 호환
-    const tRaw = rec.dst_IP || rec.t || rec.target; // 호환
-    const eRaw = rec.edge || rec.r; // 호환
+    const sRaw = rec.src_IP || rec.n || rec.source; 
+    const tRaw = rec.dst_IP || rec.t || rec.target; 
+    const eRaw = rec.edge || rec.r; 
     if (!sRaw || !tRaw) continue;
-
-    // 안정적 ID 필요
     const sid = sRaw.id; const tid = tRaw.id;
     if (!sid || !tid) continue;
-
     if (!nodesMap.has(sid)) nodesMap.set(sid, normalizeNode(sRaw));
     if (!nodesMap.has(tid)) nodesMap.set(tid, normalizeNode(tRaw));
-
     const e = normalizeEdge(eRaw);
     if (e) links.push(e);
   }
@@ -336,11 +330,12 @@ export default function CyberMultiLayer3D({ onNodeSelect = () => {}, onInspector
     const scene = fg.scene();
     const PITCH_LIMIT = 1.3; const YAW_LIMIT = Math.PI/6; const ROLL_LIMIT = Infinity; const PITCH_SENS = 0.005; const YAW_SENS = 0.006; const ROLL_SENS = 0.006; const KEY_STEP = Math.PI/60;
     const clampAll = () => { scene.rotation.x = THREE.MathUtils.clamp(scene.rotation.x, -PITCH_LIMIT, PITCH_LIMIT); scene.rotation.y = THREE.MathUtils.clamp(scene.rotation.y, -YAW_LIMIT, YAW_LIMIT); scene.rotation.z = THREE.MathUtils.clamp(scene.rotation.z, -ROLL_LIMIT, ROLL_LIMIT); scene.rotation.order='YXZ'; };
-    let dragging=false,lastX=0,lastY=0;
+  let dragging=false,lastX=0,lastY=0;
+  let spacePressed = false;
     const getX = (e) => e.clientX ?? (e.touches && e.touches[0]?.clientX) ?? 0;
     const getY = (e) => e.clientY ?? (e.touches && e.touches[0]?.clientY) ?? 0;
     const onDown = (e)=>{dragging=true; lastX=getX(e); lastY=getY(e);};
-    const onMove = (e)=>{ if(!dragging) return; const x=getX(e), y=getY(e); const dx=x-lastX, dy=y-lastY; lastX=x; lastY=y; if(e.shiftKey){ scene.rotation.z += dx*ROLL_SENS; } else { scene.rotation.y += dx*YAW_SENS; scene.rotation.x += dy*PITCH_SENS; } clampAll(); };
+  const onMove = (e)=>{ if(!dragging) return; const x=getX(e), y=getY(e); const dx=x-lastX, dy=y-lastY; lastX=x; lastY=y; if(spacePressed){ scene.rotation.z += dx*ROLL_SENS; } else { scene.rotation.y += dx*YAW_SENS; scene.rotation.x += dy*PITCH_SENS; } clampAll(); };
     const onUp = ()=>{dragging=false;};
     dom.addEventListener('pointerdown', onDown);
     window.addEventListener('pointermove', onMove);
@@ -348,8 +343,14 @@ export default function CyberMultiLayer3D({ onNodeSelect = () => {}, onInspector
     dom.addEventListener('pointerleave', onUp);
     const worldDiag = new THREE.Vector3(1,1,1).normalize();
     const onKey = (e)=>{ let used=true; switch(e.key){ case 'ArrowUp': scene.rotation.x -= KEY_STEP; break; case 'ArrowDown': scene.rotation.x += KEY_STEP; break; case 'ArrowLeft': scene.rotation.y -= KEY_STEP; break; case 'ArrowRight': scene.rotation.y += KEY_STEP; break; case 'z': case 'Z': scene.rotation.z -= KEY_STEP; break; case 'x': case 'X': scene.rotation.z += KEY_STEP; break; case 'r': case 'R': scene.rotation.set(0,0,0,'YXZ'); break; case 'u': case 'U': scene.rotateOnWorldAxis(worldDiag, +KEY_STEP); scene.rotation.setFromQuaternion(scene.quaternion,'YXZ'); break; case 'i': case 'I': scene.rotateOnWorldAxis(worldDiag, -KEY_STEP); scene.rotation.setFromQuaternion(scene.quaternion,'YXZ'); break; default: used=false;} if(used){clampAll();} };
+    // Space 키를 누르고 드래그하면 Roll(회전) 모드로 전환
+    const onSpaceDown = (ev) => { if (ev.code === 'Space' || ev.key === ' ') { spacePressed = true; try { ev.preventDefault(); } catch {} } };
+    const onSpaceUp = (ev) => { if (ev.code === 'Space' || ev.key === ' ') { spacePressed = false; try { ev.preventDefault(); } catch {} } };
+
     window.addEventListener('keydown', onKey);
-    return ()=>{ dom.removeEventListener('pointerdown', onDown); window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', onUp); dom.removeEventListener('pointerleave', onUp); window.removeEventListener('keydown', onKey); };
+    window.addEventListener('keydown', onSpaceDown);
+    window.addEventListener('keyup', onSpaceUp);
+    return ()=>{ dom.removeEventListener('pointerdown', onDown); window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', onUp); dom.removeEventListener('pointerleave', onUp); window.removeEventListener('keydown', onKey); window.removeEventListener('keydown', onSpaceDown); window.removeEventListener('keyup', onSpaceUp); };
   }, []);
 
   // 필터링 후 시각화용 그래프 계산

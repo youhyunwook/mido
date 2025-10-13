@@ -4,6 +4,9 @@ import * as THREE from "three";
 import ZonePage from "../zones/ZonePage";
 
 
+// 간단한 뷰 캐시: view -> { nodes, links }
+const VIEW_CACHE = new Map();
+
 // ------------------------------
 // 1) 데이터 fetch & 정규화
 // ------------------------------
@@ -209,18 +212,28 @@ export default function NetworkTopology3D_LeftSidebar({ activeView = "default", 
     (async () => {
       setLoading(true);
       try {
-        const g = await fetchNetworkData(view);
+        // 캐시가 있으면 재사용 (Zone 상세로 들어갔다 나오더라도 중복 fetch 방지)
+        let g = VIEW_CACHE.get(view);
+        if (!g) {
+          g = await fetchNetworkData(view);
+          // 얕은 복사(배열만 복사)로 캐시 저장
+          VIEW_CACHE.set(view, { nodes: g.nodes.slice(), links: g.links.slice() });
+          // 재할당해서 이후 로직은 원래 g 배열을 사용
+          g = { nodes: g.nodes, links: g.links };
+        } else {
+          // 캐시에서 가져온 얕은 복사 사용
+          g = { nodes: g.nodes.slice(), links: g.links.slice() };
+        }
         const deg = new Map();
         g.links.forEach((l) => { deg.set(idOf(l.source), (deg.get(idOf(l.source)) || 0) + 1); deg.set(idOf(l.target), (deg.get(idOf(l.target)) || 0) + 1); });
         g.nodes.forEach((n) => (n.__deg = deg.get(n.id) || 0));
 
-        // Include zone 0 (null만 제외)
+        // Include zone 0 
         const nodesFiltered = g.nodes.filter((n) => normalizeZoneVal(n.zone) !== null);
         const nodeIds = new Set(nodesFiltered.map((n) => n.id));
         g.links = g.links.filter((l) => nodeIds.has(idOf(l.source)) && nodeIds.has(idOf(l.target)));
         g.nodes = nodesFiltered;
 
-        // Zone-based spread: compute centers and place nodes tighter around center
         const zonesFetched = Array.from(new Set(g.nodes.map((n) => normalizeZoneVal(n.zone)))).filter((z) => z !== null);
         const centersFetched = computeZoneCenters(zonesFetched);
         const ZONE_RADIUS = Math.max(280, LAYOUT.ZONE_RADIUS); // ↓ 분산 축소
@@ -261,8 +274,12 @@ export default function NetworkTopology3D_LeftSidebar({ activeView = "default", 
           const s = lnk.source || {}; const t = lnk.target || {};
           const sz = normalizeZoneVal(s.zone); const tz = normalizeZoneVal(t.zone);
           const sk = String(s.kind || '').toLowerCase(); const tk = String(t.kind || '').toLowerCase();
-          if ((sz === 0 && sk === 'firewall') || (tz === 0 && tk === 'firewall')) return 52; // 더 붙임
-          return (String(lnk.type || '').toLowerCase() === 'physical' ? 90 : 130);
+          if ((sz === 0 && sk === 'firewall') || (tz === 0 && tk === 'firewall')) return 52; 
+          const base = (String(lnk.type || '').toLowerCase() === 'physical' ? 90 : 130);
+          const edgeKinds = ['host', 'server', 'hub'];
+          const netKinds = ['router','switch','l3switch','switchrouter','layer3'];
+          const isEdgeNet = (edgeKinds.includes(sk) && netKinds.includes(tk)) || (edgeKinds.includes(tk) && netKinds.includes(sk));
+          return isEdgeNet ? Math.round(base * 1.2) : base;
         } catch { return 120; } })
         .strength((lnk) => { try {
           const s = lnk.source || {}; const t = lnk.target || {};
@@ -283,7 +300,7 @@ export default function NetworkTopology3D_LeftSidebar({ activeView = "default", 
   const countByZone = useMemo(() => {
     const m = new Map(); allZones.forEach((z) => m.set(z, 0));
     graph.nodes.forEach((n) => { const z = normalizeZoneVal(n.zone); if (m.has(z)) m.set(z, (m.get(z) || 0) + 1); });
-    return m;
+    return m; 
   }, [graph.nodes, allZones]);
 
   const [selectedZones, setSelectedZones] = useState([]);
@@ -294,6 +311,14 @@ export default function NetworkTopology3D_LeftSidebar({ activeView = "default", 
   const [linkTypeFilter, setLinkTypeFilter] = useState('all'); 
 
   const [activeZone, setActiveZone] = useState(null);
+  // Zone 상세로 들어갈 때 현재 노드/링크 배열을 얕은 복사로 캐시에 저장
+  useEffect(() => {
+    if (activeZone !== null) {
+      try {
+        VIEW_CACHE.set(view, { nodes: graph.nodes.slice(), links: graph.links.slice() });
+      } catch (e) { /* noop */ }
+    }
+  }, [activeZone, view, graph.nodes, graph.links]);
   const filtered = useMemo(() => {
     const base = buildFilteredGraph(graph, selectedZones);
     if (!base || !base.links) return base;
@@ -445,20 +470,53 @@ export default function NetworkTopology3D_LeftSidebar({ activeView = "default", 
   }, []);
 
   const updateLogicalDashed = useCallback((l, group) => {
-    const src = l.source; const tgt = l.target; if (!src || !tgt) return;
+    // 안전 해석: source/target이 id 문자열일 수 있음 -> 노드 객체로 찾기
+    let src = l.source; let tgt = l.target;
+    if (!src || !tgt) return;
+    if (typeof src === 'string' || typeof src === 'number') src = graph.nodes.find(n => String(n.id) === String(src));
+    if (typeof tgt === 'string' || typeof tgt === 'number') tgt = graph.nodes.find(n => String(n.id) === String(tgt));
+    if (!src || !tgt) { group.visible = false; return; }
+
+    // 계산 중 잠시 숨김(좌표 준비/트리밍 동안 깜빡임 방지)
+    const prevVis = group.visible; group.visible = false;
+
     const start = new THREE.Vector3(src.x || 0, src.y || 0, src.z || 0);
     const end   = new THREE.Vector3(tgt.x || 0, tgt.y || 0, tgt.z || 0);
-    const curve = getCurve(start, end, linkCurvature(l), linkCurveRotation(l));
+
+    // 노드 겹침을 피하기 위해 끝단을 노드 클리어런스만큼 안쪽으로 트리밍
+    const estimateClearance = (node) => {
+      if (!node) return 3.0;
+      const deg = node.__deg || 0;
+      const s = node.kind === 'core' ? 1.4 : Math.max(0.9, Math.min(1.8, 0.95 + (deg) * 0.06));
+      return 3.0 * s;
+    };
+    const cStart = estimateClearance(src);
+    const cEnd = estimateClearance(tgt);
+    const totalVec = new THREE.Vector3().subVectors(end, start);
+    const totalLen = totalVec.length() || 1;
+    const dir = totalVec.clone().normalize();
+    const trimmedStart = start.clone().add(dir.clone().multiplyScalar(Math.min(cStart, totalLen * 0.4)));
+    const trimmedEnd = end.clone().add(dir.clone().multiplyScalar(-Math.min(cEnd, totalLen * 0.4)));
+
+    const curve = getCurve(trimmedStart, trimmedEnd, linkCurvature(l), linkCurveRotation(l));
     const dashCount = DASH_CONF.count; const dashRatio = DASH_CONF.ratio;
     ensureDashMeshes(group, dashCount, geoCache.dashUnit, nodeMatCache.dashedBase, nodeMatCache.dashedInc);
     const incident = !!(selectedId && isIncident(l));
     const radius = incident ? DASH_CONF.incRadius : DASH_CONF.baseRadius; const mat = incident ? group.userData.matInc : group.userData.matBase;
+    // endpoints trimming and per-dash cap trim
+    const EPS = 1.0 / (dashCount * 12);
+    const capTrim = Math.min(0.08, Math.max(0.02, (cStart + cEnd) / (totalLen * 4)));
     for (let i = 0; i < dashCount; i++) {
-      const t0 = i / dashCount; const t1 = Math.min(1, t0 + (dashRatio / dashCount));
+      const baseT0 = i / dashCount;
+      const baseT1 = Math.min(1, baseT0 + (dashRatio / dashCount));
+      const t0 = Math.max(0 + capTrim, baseT0 + EPS);
+      const t1 = Math.min(1 - capTrim, baseT1 - EPS);
+      if (t1 <= t0) { const mesh = group.userData.dashes[i]; if (mesh) mesh.visible = false; continue; }
       const a = curve.getPoint(t0); const b = curve.getPoint(t1);
-      const mesh = group.userData.dashes[i]; if (!mesh) continue; mesh.material = mat; placeCylinderBetween(mesh, a, b, radius);
+      const mesh = group.userData.dashes[i]; if (!mesh) continue; mesh.material = mat; placeCylinderBetween(mesh, a, b, Math.max(0.2, radius));
     }
-  }, [geoCache.dashUnit, nodeMatCache.dashedBase, nodeMatCache.dashedInc, selectedId, isIncident, linkCurvature]);
+    group.visible = !!prevVis;
+  }, [geoCache.dashUnit, nodeMatCache.dashedBase, nodeMatCache.dashedInc, selectedId, isIncident, linkCurvature, graph.nodes]);
 
   const refreshAllDashed = useCallback(() => {
     const scene = fgRef.current?.scene?.(); if (!scene) return;

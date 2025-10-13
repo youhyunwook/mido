@@ -291,7 +291,7 @@ export default function NetworkTopology3D_LeftSidebar({ activeView = "default", 
   // strictZones feature removed — use selectedZones checkboxes for zone filtering
 
   // Local UI-only link type filter to avoid re-querying the backend
-  const [linkTypeFilter, setLinkTypeFilter] = useState('all'); // 'all' | 'physical' | 'logical'
+  const [linkTypeFilter, setLinkTypeFilter] = useState('all'); 
 
   const [activeZone, setActiveZone] = useState(null);
   const filtered = useMemo(() => {
@@ -304,18 +304,15 @@ export default function NetworkTopology3D_LeftSidebar({ activeView = "default", 
       links = links.filter((l) => (String(l.type || '').toLowerCase() === (wantPhysical ? 'physical' : 'logical')));
     }
 
-    // apply strict zone logic: if a zone is marked strict, only keep links that are intra-that-zone
-    // (no strictZones processing — keep links based on selectedZones and linkTypeFilter only)
+ 
 
-    // include nodes that are endpoints of the remaining links
+
     const nodeIds = new Set();
     links.forEach((l) => { nodeIds.add(idOf(l.source)); nodeIds.add(idOf(l.target)); });
     let nodes;
     if (linkTypeFilter === 'all') {
-      // keep nodes that are endpoints OR that belong to selected zones (previous behavior)
       nodes = base.nodes.filter((n) => nodeIds.has(n.id) || selectedZones.includes(normalizeZoneVal(n.zone)));
     } else {
-      // when filtering by physical/logical, only show nodes that are endpoints of matching links
       nodes = base.nodes.filter((n) => nodeIds.has(n.id));
     }
     return { nodes, links };
@@ -485,18 +482,16 @@ export default function NetworkTopology3D_LeftSidebar({ activeView = "default", 
     return () => clearTimeout(timer);
   }, [graph.nodes, focusNodeById]);
 
-  // (node/background click handlers are provided inline to ForceGraph props)
 
   const toggleZone = (z) => {
     setSelected((prev) => (prev && normalizeZoneVal(prev.zone) === z ? null : prev));
     setSelectedZones((prev) => { const set = new Set(prev); if (set.has(z)) set.delete(z); else set.add(z); return Array.from(set).sort((a,b)=>a-b); });
   };
 
-  // strict mode removed; use checkboxes to control selectedZones
   const selectAll = () => setSelectedZones(allZones);
   const selectNone = () => setSelectedZones([]);
 
-  // Space+Drag for pan
+  // Space 키 + 드래그로 패닝
   const spaceDownRef = useRef(false);
   useEffect(() => {
     const fg = fgRef.current; if (!fg) return;
@@ -517,13 +512,10 @@ export default function NetworkTopology3D_LeftSidebar({ activeView = "default", 
 
   return (
     <div style={{width:'100%',height:'100vh',background:'linear-gradient(135deg,#0b0f18,#0a0c10)',borderRadius:0,overflow:'hidden',border:'1px solid rgba(255,255,255,0.10)',boxShadow:'0 8px 32px 0 #0006',display:'flex'}}>
-      {/* Left vertical toolbar */}
+  {/* 왼쪽 세로 툴바 */}
       <aside style={{width:280,flex:'none',background:'rgba(0,0,0,0.30)',backdropFilter:'blur(6px)',borderRight:'1px solid rgba(255,255,255,0.10)',padding:16,display:'flex',flexDirection:'column',borderRadius:0}}>
-        {/* (View header removed per request) */}
-
         <div style={{height:1, background:'rgba(255,255,255,0.10)', margin:'6px 0 10px'}} />
-
-        {/* Link Type */}
+  {/* 링크 유형 */}
         <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8}}>
           <span style={{fontSize:13, color:'#cbd5e1'}}>Link Type</span>
         </div>
@@ -531,12 +523,10 @@ export default function NetworkTopology3D_LeftSidebar({ activeView = "default", 
           <button onClick={()=>{ setLinkTypeFilter('physical'); }} style={{ padding:'7px 0',borderRadius:8,fontSize:12, background:(view==="physical" || linkTypeFilter==='physical')?'#2563ebcc':'rgba(255,255,255,0.08)', color:'#fff',border:'1px solid rgba(255,255,255,0.15)',cursor:'pointer' }} title="물리 링크만 보기">Physical</button>
           <button onClick={()=>{ setLinkTypeFilter('logical'); }} style={{ padding:'7px 0',borderRadius:8,fontSize:12, background:(view==="logical" || linkTypeFilter==='logical')?'#2563ebcc':'rgba(255,255,255,0.08)', color:'#fff',border:'1px solid rgba(255,255,255,0.15)',cursor:'pointer' }} title="논리 링크(점선)만 보기">Logical</button>
         </div>
-
         {/* 뷰 초기화 */}
         <div style={{display:'flex',gap:8,marginBottom:12}}>
           <button onClick={() => { setSelected(null); setSelectedZones(allZones); setLinkTypeFilter('all'); const core = graph.nodes.find((n) => n.kind === "core"); if (core && fgRef.current) { const distance = 150; const zFixed = 640; const distRatio = 1 + distance / Math.hypot(core.x || 1, core.y || 1, core.z || 1); fgRef.current.cameraPosition({ x: (core.x || 1) * distRatio, y: (core.y || 1) * distRatio, z: zFixed }, core, 800); } }} style={{flex:1,padding:'7px 0', borderRadius:8,fontSize:13,background:'#2563ebcc',color:'#fff',border:'1px solid #3b82f6',cursor:'pointer'}}>뷰 초기화</button>
         </div>
-
         {/* Zones 목록 */}
         <div style={{display:'flex',alignItems:'center',gap:8,margin:'8px 0 10px'}}>
           <div style={{width:12,height:12,borderRadius:6,background:'#60a5fa',boxShadow:'0 0 4px #60a5fa'}}></div>
@@ -582,7 +572,7 @@ export default function NetworkTopology3D_LeftSidebar({ activeView = "default", 
         </div>
       </aside>
 
-      {/* Graph area */}
+  {/* 그래프 영역 */}
       <main style={{flex:1,height:'100%'}}>
         <ForceGraph3D
           ref={fgRef}

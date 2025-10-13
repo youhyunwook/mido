@@ -3,15 +3,14 @@ import ForceGraph3D from 'react-force-graph-3d';
 import * as THREE from 'three';
 
 // ===================== 상수 =====================
-const LAYERS = { physical: 'physical', logical: 'logical', persona: 'persona' };
 const STATUS = ['up', 'down', 'unknown'];
 const LAYER_COLORS = { physical: '#3BA3FF', logical: '#9B6BFF', persona: '#FF9E3B' };
-// Layout tuning: increase spreads/heights for clearer multi-layer visualization
+// 레이아웃 튜닝: 멀티레이어 시각화를 위해 분포 및 높이 확장
 const LAYOUT = {
-  nodeSpread: 800,        // base random spread for x/y (was ~400)
-  layerZ: { physical: -600, logical: 0, persona: 600 }, // increased vertical separation
-  plane: { width: 2000, height: 1400 }, // bigger layer planes
-  subnetRadius: 420      // radius used for subnet cluster placement (was 220)
+  nodeSpread: 800,        // x/y 기본 분포 반경
+  layerZ: { physical: -600, logical: 0, persona: 600 }, // 레이어별 z 분리 증가
+  plane: { width: 2000, height: 1400 }, // 레이어 평면 크기 확대
+  subnetRadius: 420      // 서브넷 클러스터 배치 반경
 };
 const KIND_COLORS = {
   CONNECTS_TO: '#A0AEC0',
@@ -29,13 +28,11 @@ const API_BASE = (typeof process !== 'undefined' && process.env && process.env.R
 const PROJECT_FILTER = 'multi-layer'; // 또는 null
 
 // ===================== 유틸 =====================
-// const randItem = (arr) => arr[Math.floor(Math.random() * arr.length)];
-// maskName removed — not used after removing layer-specific detail panel
 const isCrossLayer = (a, b) => a.layer !== b.layer;
 
 // ===================== 정규화: Node/Edge =====================
 function normalizeNode(raw) {
-  // __labels / layer 속성 기반으로 레이어 판정 (대소문자 무시)
+  // __labels / layer 속성 기반으로 레이어 판정
   const labelsLower = (raw.__labels || []).map(s => String(s).toLowerCase());
   let layer =
     (raw.layer && String(raw.layer).toLowerCase()) ||
@@ -142,7 +139,7 @@ async function fetchThreeLayer(project) {
 }
 
 // ===================== 인접 계산 =====================
-export function buildAdjacency(nodes, links) {
+function buildAdjacency(nodes, links) {
   const byId = Object.fromEntries(nodes.map(n => [n.id, n]));
   const adj = new Map(); nodes.forEach(n => adj.set(n.id, new Set()));
   links.forEach(l => {
@@ -247,9 +244,6 @@ function ConnList({ listType, selectedId, visible, byId, adj }) {
   );
 }
 
-// ===================== 테스트 헬퍼 =====================
-// test helpers removed — not referenced elsewhere in the project
-
 // ===================== 메인 컴포넌트 =====================
 export default function CyberMultiLayer3D({ onNodeSelect = () => {}, onInspectorChange = () => {} }) {
   const fgRef = useRef();
@@ -281,7 +275,7 @@ export default function CyberMultiLayer3D({ onNodeSelect = () => {}, onInspector
   ctx.fillStyle = 'rgba(0,0,0,0)'; ctx.fillRect(0,0,512,128); ctx.font = '40px sans-serif'; ctx.fillStyle = '#ffffff'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillText(label, 14, 64);
   const tex = new THREE.CanvasTexture(canvas); const sprMat = new THREE.SpriteMaterial({ map: tex, transparent: true, opacity: 0.9, depthWrite: false });
   const sprite = new THREE.Sprite(sprMat); sprite.scale.set(320, 80, 1);
-  // position label at top-left corner of plane area (with margin)
+  // 평면 영역의 좌상단에 레이블 표시 (여백 포함)
   sprite.position.set(-LAYOUT.plane.width/2 + 180, LAYOUT.plane.height/2 - 80, z + 0.2);
       group.add(mesh); group.add(line); group.add(sprite);
     };
@@ -292,7 +286,7 @@ export default function CyberMultiLayer3D({ onNodeSelect = () => {}, onInspector
   };
   const toggleLayerPlanes = (visible) => { const scene = fgRef.current?.scene?.(); const group = scene?.getObjectByName('layer-planes'); if (group) group.visible = !!visible; };
 
-  // 초기 로딩: 카메라/컨트롤/플레인
+  // 초기 로딩: 카메라, 컨트롤, 레이어 평면 설정
   useEffect(() => {
     const fg = fgRef.current; if (!fg) return;
     const controls = fg.controls && fg.controls();
@@ -308,14 +302,14 @@ export default function CyberMultiLayer3D({ onNodeSelect = () => {}, onInspector
     addLayerPlanes(); toggleLayerPlanes(true);
   }, []);
 
-  // 포스 설정 완화
+  // 포스(힘) 설정 완화
   useEffect(() => {
     const fg = fgRef.current; if (!fg) return;
     try { fg.d3Force('charge') && fg.d3Force('charge').strength(0); } catch {}
     try { fg.d3Force('link') && fg.d3Force('link').strength(() => 0.05); } catch {}
   }, []);
 
-  // 데이터 로딩 (3계층 통합: HOSTS+USES)
+  // 데이터 로딩 (3계층 통합: HOSTS + USES)
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -358,7 +352,7 @@ export default function CyberMultiLayer3D({ onNodeSelect = () => {}, onInspector
     return ()=>{ dom.removeEventListener('pointerdown', onDown); window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', onUp); dom.removeEventListener('pointerleave', onUp); window.removeEventListener('keydown', onKey); };
   }, []);
 
-  // 필터링/가시 그래프
+  // 필터링 후 시각화용 그래프 계산
   const visible = useMemo(() => {
     const passesNode = (n) => {
       if (!layerFilter[n.layer]) return false;
@@ -415,7 +409,7 @@ export default function CyberMultiLayer3D({ onNodeSelect = () => {}, onInspector
   const onLinkClick = (l) => { const sid = l.__sid || (typeof l.source==='object'?l.source.id:l.source); const node = byId[sid]; if (node) onNodeClick(node); };
   const onLinkUpdate = (link, threeObj) => { try { const line = link.__lineObj || threeObj; if (line && line.computeLineDistances) line.computeLineDistances(); } catch {} };
 
-  // 렌더용 그래프: 펄스 OFF일 때 1-홉만 표시
+  // 렌더용 그래프: 펄스 OFF일 경우 1-홉 이내만 표시
   const graphToRender = useMemo(() => {
     if (pulse) return visible;
     if (!selectedId) return { nodes: visible.nodes, links: [] };

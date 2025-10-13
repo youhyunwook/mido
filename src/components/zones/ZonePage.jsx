@@ -1,4 +1,4 @@
-// src/ZonePage.jsx
+// ZonePage.jsx
 import React, { useRef, useEffect, useState, useMemo } from "react";
 import ForceGraph3D from "react-force-graph-3d";
 import * as THREE from "three";
@@ -22,7 +22,7 @@ export default function ZonePage({ zone, onBack, onInspectorChange }) {
   const [zoneGraph, setZoneGraph] = useState({ nodes: [], links: [] });
   const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState(null);
-  const NODE_SCALE_MULT = 1.7; // match network_topology scaling
+  const NODE_SCALE_MULT = 1.7; // network_topology와 동일한 스케일 적용
 
   useEffect(() => {
     if (zone === null || zone === undefined) return;
@@ -117,7 +117,7 @@ export default function ZonePage({ zone, onBack, onInspectorChange }) {
     []
   );
 
-  // Dash/curve helpers (render logical links as grouped cylinders)
+  // 대시/곡선 헬퍼 (논리 링크를 그룹화된 실린더로 렌더링)
   const DASH_CONF = {
     count: 16,
     ratio: 0.58,
@@ -145,7 +145,7 @@ export default function ZonePage({ zone, onBack, onInspectorChange }) {
     group.userData.matBase = matBase; group.userData.matInc = matInc;
   }
 
-  // enhance meshes after creation to minimize z-fighting
+  // 생성 후 메시를 보강하여 Z-파이팅 최소화
   function enhanceDashMesh(mesh) {
     try {
       mesh.renderOrder = 10;
@@ -180,17 +180,17 @@ export default function ZonePage({ zone, onBack, onInspectorChange }) {
   }
 
   function updateLogicalDashed(l, group) {
-      // Resolve endpoints: l.source/l.target may be ids (strings) or node objects
+  // 끝점 해결: l.source/l.target이 id(문자열) 또는 노드 객체일 수 있음
       const srcObj = (l.source && typeof l.source === 'object') ? l.source : zoneGraph.nodes.find(n => String(n.id) === String(l.source));
       const tgtObj = (l.target && typeof l.target === 'object') ? l.target : zoneGraph.nodes.find(n => String(n.id) === String(l.target));
       if (!srcObj || !tgtObj) { group.visible = false; return; }
       const start = new THREE.Vector3(srcObj.x || 0, srcObj.y || 0, srcObj.z || 0);
       const end = new THREE.Vector3(tgtObj.x || 0, tgtObj.y || 0, tgtObj.z || 0);
 
-      // Estimate node clearance (approximate visible radius) to trim curve endpoints
+  // 노드 간섭 회피를 위한 대략적 반경(클리어런스) 추정 및 곡선 끝점 트리밍
       const estimateClearance = (node) => {
         if (!node) return 3.0;
-        // Mirror the sizing logic used in nodeThreeObjectHL: base radius ~3 * scale
+  // nodeThreeObjectHL에서 사용하는 크기 로직을 반영: 기본 반경 ≈ 3 * 스케일
         const deg = node.__deg || 0;
         const s = node.kind === 'core' ? 1.4 : Math.max(0.9, Math.min(1.8, 0.95 + (deg) * 0.06));
         return 3.0 * s; // base geometry radius ~3 units scaled
@@ -200,7 +200,7 @@ export default function ZonePage({ zone, onBack, onInspectorChange }) {
       const totalVec = new THREE.Vector3().subVectors(end, start);
       const totalLen = totalVec.length() || 1;
       const dir = totalVec.clone().normalize();
-      // Trimmed endpoints to avoid overlapping node geometry
+  // 노드 지오메트리와 겹치지 않도록 끝점 트리밍
       const trimmedStart = start.clone().add(dir.clone().multiplyScalar(Math.min(cStart, totalLen*0.4)));
       const trimmedEnd = end.clone().add(dir.clone().multiplyScalar(-Math.min(cEnd, totalLen*0.4)));
   const curve = getCurve(trimmedStart, trimmedEnd, linkCurvature(l), linkCurveRotation(l));
@@ -208,7 +208,7 @@ export default function ZonePage({ zone, onBack, onInspectorChange }) {
     ensureDashMeshes(group, dashCount, geoCache.dashUnit, nodeMatCache.dashedBase, nodeMatCache.dashedInc);
     const incident = !!(selected && (getId(l.source) === selected.id || getId(l.target) === selected.id));
     const radius = incident ? DASH_CONF.incRadius : DASH_CONF.baseRadius; const mat = incident ? group.userData.matInc : group.userData.matBase;
-      // Small offsets to avoid dashes overlapping node geometry (clamp t0/t1 inward)
+  // 대시가 노드 지오메트리와 겹치지 않도록 소폭 오프셋(파라미터 t0/t1 내부로 클램프)
       const EPS = 1.0 / (dashCount * 12); // smaller fraction
       const capTrim = Math.min(0.08, Math.max(0.02, (cStart + cEnd) / (totalLen * 4)));
       for (let i = 0; i < dashCount; i++) {
@@ -232,7 +232,7 @@ export default function ZonePage({ zone, onBack, onInspectorChange }) {
     return m;
   };
 
-  // Build adjacency map for neighbor highlighting
+  // 이웃 하이라이트를 위한 인접 맵 생성
   const adjacency = useMemo(() => {
     const m = new Map();
     zoneGraph.links.forEach((l) => {
@@ -246,14 +246,14 @@ export default function ZonePage({ zone, onBack, onInspectorChange }) {
     return m;
   }, [zoneGraph]);
 
-  // ID 정규화 헬퍼: 링크 끝점이 "문자열" 또는 "노드 객체" 모두 대응
+  // ID 정규화 헬퍼: 링크 끝점이 문자열(id) 또는 노드 객체 둘 다 처리
   const getId = (end) => (end && typeof end === "object" ? (end.id ?? end.__id ?? String(end)) : String(end));
 
-  // Highlight logic for nodes/links
+  // 노드/링크 하이라이트 로직
   const isHLNode = (n) => selected && (n.id === selected.id || adjacency.get(selected.id)?.has(n.id));
   const isIncident = (l) => selected && (getId(l.source) === selected.id || getId(l.target) === selected.id); // ★ 수정
 
-  // Inspector 
+  // Inspector 영역
   useEffect(() => {
     if (!onInspectorChange) return;
     if (!selected) {
@@ -286,7 +286,7 @@ export default function ZonePage({ zone, onBack, onInspectorChange }) {
     onInspectorChange?.(inspectorJsx);
   }, [selected, onInspectorChange, adjacency]);
 
-  // Custom node object with highlight and always show IP label
+  // 커스텀 노드 오브젝트: 하이라이트와 IP 라벨 항상 표시
   function nodeThreeObjectHL(node) {
     const group = new THREE.Group();
     const baseHex = node.color || "#a0b4ff";
@@ -316,7 +316,7 @@ export default function ZonePage({ zone, onBack, onInspectorChange }) {
     const hit = new THREE.Mesh(geoCache.hit, nodeMatCache.hit);
     hit.name = "hit-proxy";
     group.add(hit);
-    // Always show IP label above node
+  // 노드 위에 IP 라벨 항상 표시
     if (node.ip) {
       const canvas = document.createElement('canvas');
       const ctx = canvas.getContext('2d');
@@ -367,7 +367,7 @@ export default function ZonePage({ zone, onBack, onInspectorChange }) {
           linkThreeObject={linkThreeObject}
           linkThreeObjectExtend={false}
 
-          //  링크 강조 강화 (색/불투명도/두께/파티클/화살표)
+          // 링크 강조 (색/투명도/두께/파티클/화살표)
           linkColor={(l) => {
             const isLogical = String(l.type || '').toLowerCase() === 'logical';
             if (isLogical) return selected ? (isIncident(l) ? '#3a6fe2' : '#87aafc') : '#87aafc';
@@ -381,7 +381,7 @@ export default function ZonePage({ zone, onBack, onInspectorChange }) {
           }}
           linkWidth={(l) => {
             const isLogical = String(l.type || '').toLowerCase() === 'logical';
-            if (isLogical) return 0; // hide base line for logical links
+            if (isLogical) return 0; // 논리 링크의 기본 실선은 숨김
             return (!selected ? 1.2 : isIncident(l) ? 6 : 0.5);
           }}
 
@@ -435,7 +435,7 @@ export default function ZonePage({ zone, onBack, onInspectorChange }) {
           onNodeClick={setSelected}
           onBackgroundClick={() => setSelected(null)}
           onLinkClick={(l) => {
-            // when user clicks a link, select source node for inspector and highlight
+            // 링크 클릭 시 inspector를 위해 출발 노드를 선택하고 하이라이트
             const sid = getId(l.source);
             const node = zoneGraph.nodes.find(n => n.id === sid) || zoneGraph.nodes[0];
             if (node) setSelected(node);

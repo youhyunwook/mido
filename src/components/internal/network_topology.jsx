@@ -3,7 +3,6 @@ import ForceGraph3D from "react-force-graph-3d";
 import * as THREE from "three";
 import ZonePage from "../zones/ZonePage";
 
-
 // 간단한 뷰 캐시: view -> { nodes, links }
 const VIEW_CACHE = new Map();
 
@@ -83,32 +82,33 @@ async function fetchNetworkData(activeView = "default") {
 // 2) 그래프 유틸리티 함수
 // ------------------------------
 function idOf(n) { return typeof n === "object" ? n.id : n; }
+function getId(end) { return (end && typeof end === "object") ? (end.id ?? String(end)) : String(end); }
 function hashId(s) { s = String(s || ""); let h = 0; for (let i = 0; i < s.length; i++) h = (h * 131 + s.charCodeAt(i)) >>> 0; return h; }
 function buildAdjacency(links) { const m = new Map(); links.forEach((l) => { const a = idOf(l.source); const b = idOf(l.target); if (!m.has(a)) m.set(a, new Set()); if (!m.has(b)) m.set(b, new Set()); m.get(a).add(b); m.get(b).add(a); }); return m; }
 
 // ------------------------------
-// 3) 레이아웃: 존별 원형 토폴로지 (촘촘하게 조정)
+// 3) 레이아웃: 존별 원형 토폴로지
 // ------------------------------
 const LAYOUT = {
-  ZONE_RADIUS: 420,     // zone 간 반경 
-  ROLE_BASE_R: 34,      // 각 존 내 첫 링 반경
-  ROLE_STEP_R: 18,      // 각 존 내 링 간격
-  FW_R_RATIO: 0.,     // 존 내 방화벽 링 반경 비율   
-  FW_SPREAD: 8,         // 존 내 방화벽 분산 정도  
+  ZONE_RADIUS: 420,
+  ROLE_BASE_R: 34,
+  ROLE_STEP_R: 18,
+  FW_R_RATIO: 0.0,
+  FW_SPREAD: 8,
   DEPTH_Z: { firewall: 51, router: 41, l3switch: 27, switchrouter: 27, layer3: 27, switch: 14, server: 0, host: -14, hub: -14, default: -7 },
-  OUTER_RING_MULT: 10,      // 존 내 최대 링 개수 (기본 9 -> 7)
-  ZONE_GAP_MARGIN: 40      // 존 간 간격
+  OUTER_RING_MULT: 10,
+  ZONE_GAP_MARGIN: 40
 };
 
 const UI = {
-  NODE_SCALE_MULT: 1.7,   // 전체 노드 크기 배율
-  PHYSICAL_LINK_WIDTH: { base: 4, inc: 6 }, // 물리 링크 두께 업
+  NODE_SCALE_MULT: 1.7,
+  PHYSICAL_LINK_WIDTH: { base: 4, inc: 6 },
 };
 
 function computeZoneCenters(zones) {
   const centers = new Map();
   const CORE_CENTER = { x: 0, y: 0, z: 0 };
-  if (zones.includes(null)) centers.set(null, CORE_CENTER); 
+  if (zones.includes(null)) centers.set(null, CORE_CENTER);
   const others = zones.filter((z) => z !== null);
   const n = others.length;
   const baseR = LAYOUT.ZONE_RADIUS;
@@ -155,10 +155,10 @@ function buildFilteredGraph(fullGraph, selectedZones) {
 // 5) 곡선/대시 유틸 (logical을 굵은 점선 튜브로 렌더)
 // ------------------------------
 const DASH_CONF = {
-  count: 16,         // 값이 클수록 촘촘
-  ratio: 0.58,       // 값이 클수록 대시 길이 비율 증가
-  baseRadius: 1.35,  // 값이 클수록 튜브 두꺼워짐
-  incRadius: 2.8,    // 값이 클수록 튜브 두꺼워짐
+  count: 16,
+  ratio: 0.58,
+  baseRadius: 1.35,
+  incRadius: 2.8,
   baseColor: 0x87aafc,
   incColor: 0x3a6fe2
 };
@@ -179,7 +179,7 @@ function ensureDashMeshes(group, dashCount, geo, matBase, matInc) {
   if (!group.userData.dashes) group.userData.dashes = [];
   const cur = group.userData.dashes;
   while (cur.length < dashCount) { const m = new THREE.Mesh(geo, matBase); m.castShadow = false; m.receiveShadow = false; cur.push(m); group.add(m); }
-  while (cur.length > dashCount) { const m = cur.pop(); group.remove(m); m.geometry?.dispose?.(); }
+  while (cur.length > dashCount) { const m = cur.pop(); group.remove(m); /* 공유 지오메트리 사용: dispose 금지 */ }
   group.userData.matBase = matBase; group.userData.matInc = matInc;
 }
 
@@ -192,6 +192,30 @@ function placeCylinderBetween(mesh, a, b, radius) {
   mesh.position.copy(mid);
   mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0), dir.clone().normalize());
   mesh.scale.set(radius, L, radius);
+}
+
+// === 노드 클리어런스(끝단 트림) 계산 ===
+function estimateNodeScale(n) {
+  const base = n.kind === "core" ? 1.8 : 1.35 + (n.__deg || 0) * 0.08;
+  const s = Math.max(1.2, Math.min(3.2, base));
+  return s * UI.NODE_SCALE_MULT;
+}
+function getNodeBaseRadius(kind) {
+  switch ((kind || 'default').toLowerCase()) {
+    case 'core': return 7.5;
+    case 'firewall': return 4.8;
+    case 'router': return 4.6;
+    case 'l3switch':
+    case 'switchrouter':
+    case 'layer3': return 5.0;
+    case 'switch':
+    case 'l2switch': return 4.2;
+    case 'hub': return 4.2;
+    default: return 3.4;
+  }
+}
+function getNodeClearance(n) {
+  return getNodeBaseRadius(n.kind) * estimateNodeScale(n) + 2.0;
 }
 
 // ------------------------------
@@ -212,23 +236,22 @@ export default function NetworkTopology3D_LeftSidebar({ activeView = "default", 
     (async () => {
       setLoading(true);
       try {
-        // 캐시가 있으면 재사용 (Zone 상세로 들어갔다 나오더라도 중복 fetch 방지)
-        let g = VIEW_CACHE.get(view);
-        if (!g) {
-          g = await fetchNetworkData(view);
-          // 얕은 복사(배열만 복사)로 캐시 저장
-          VIEW_CACHE.set(view, { nodes: g.nodes.slice(), links: g.links.slice() });
-          // 재할당해서 이후 로직은 원래 g 배열을 사용
-          g = { nodes: g.nodes, links: g.links };
-        } else {
-          // 캐시에서 가져온 얕은 복사 사용
-          g = { nodes: g.nodes.slice(), links: g.links.slice() };
+        // 캐시가 있으면 재사용; 원본 변형 방지 위해 얕은 복사 사용
+        let base = VIEW_CACHE.get(view);
+        if (!base) {
+          base = await fetchNetworkData(view);
+          VIEW_CACHE.set(view, base);
         }
+        const g = {
+          nodes: base.nodes.map(n => ({ ...n })),
+          links: base.links.map(l => ({ ...l }))
+        };
+
         const deg = new Map();
         g.links.forEach((l) => { deg.set(idOf(l.source), (deg.get(idOf(l.source)) || 0) + 1); deg.set(idOf(l.target), (deg.get(idOf(l.target)) || 0) + 1); });
         g.nodes.forEach((n) => (n.__deg = deg.get(n.id) || 0));
 
-        // Include zone 0 
+        // Include zone 0
         const nodesFiltered = g.nodes.filter((n) => normalizeZoneVal(n.zone) !== null);
         const nodeIds = new Set(nodesFiltered.map((n) => n.id));
         g.links = g.links.filter((l) => nodeIds.has(idOf(l.source)) && nodeIds.has(idOf(l.target)));
@@ -236,7 +259,7 @@ export default function NetworkTopology3D_LeftSidebar({ activeView = "default", 
 
         const zonesFetched = Array.from(new Set(g.nodes.map((n) => normalizeZoneVal(n.zone)))).filter((z) => z !== null);
         const centersFetched = computeZoneCenters(zonesFetched);
-        const ZONE_RADIUS = Math.max(280, LAYOUT.ZONE_RADIUS); // ↓ 분산 축소
+        const ZONE_RADIUS = Math.max(280, LAYOUT.ZONE_RADIUS);
         g.nodes.forEach((n) => {
           if (n.kind === 'core') { anchorNode(n, { x: 0, y: 0, z: 0 }); n.fx = 0; n.fy = 0; n.fz = 0; return; }
           if (normalizeZoneVal(n.zone) === 0 && String(n.kind).toLowerCase() === 'firewall') {
@@ -244,11 +267,11 @@ export default function NetworkTopology3D_LeftSidebar({ activeView = "default", 
           }
           const zval = normalizeZoneVal(n.zone);
           const center = centersFetched.get(zval) || { x: (Math.random() - 0.5) * ZONE_RADIUS * 2, y: (Math.random() - 0.5) * ZONE_RADIUS * 2, z: 0 };
-          const r = ZONE_RADIUS * (0.12 + Math.random() * 0.45); // ★ 지터/반경 축소로 응집
+          const r = ZONE_RADIUS * (0.12 + Math.random() * 0.45);
           const ang = Math.random() * Math.PI * 2;
           const x = center.x + Math.cos(ang) * r;
           const y = center.y + Math.sin(ang) * r;
-          const z = (LAYOUT.DEPTH_Z[n.kind] ?? 0) + (Math.random() - 0.5) * 18; // ↓ z 지터도 축소
+          const z = (LAYOUT.DEPTH_Z[n.kind] ?? 0) + (Math.random() - 0.5) * 18;
           anchorNode(n, { x, y, z });
         });
         if (mounted) {
@@ -274,7 +297,7 @@ export default function NetworkTopology3D_LeftSidebar({ activeView = "default", 
           const s = lnk.source || {}; const t = lnk.target || {};
           const sz = normalizeZoneVal(s.zone); const tz = normalizeZoneVal(t.zone);
           const sk = String(s.kind || '').toLowerCase(); const tk = String(t.kind || '').toLowerCase();
-          if ((sz === 0 && sk === 'firewall') || (tz === 0 && tk === 'firewall')) return 52; 
+          if ((sz === 0 && sk === 'firewall') || (tz === 0 && tk === 'firewall')) return 52;
           const base = (String(lnk.type || '').toLowerCase() === 'physical' ? 90 : 130);
           const edgeKinds = ['host', 'server', 'hub'];
           const netKinds = ['router','switch','l3switch','switchrouter','layer3'];
@@ -286,7 +309,7 @@ export default function NetworkTopology3D_LeftSidebar({ activeView = "default", 
           const sz = normalizeZoneVal(s.zone); const tz = normalizeZoneVal(t.zone);
           const sk = String(s.kind || '').toLowerCase(); const tk = String(t.kind || '').toLowerCase();
           if ((sz === 0 && sk === 'firewall') || (tz === 0 && tk === 'firewall')) return 1.0;
-          return 0.9; // ↑ 0.7 -> 0.9
+          return 0.9;
         } catch { return 0.85; } });
     } catch (e) {}
   }, [graph.nodes.length, graph.links.length]);
@@ -300,37 +323,26 @@ export default function NetworkTopology3D_LeftSidebar({ activeView = "default", 
   const countByZone = useMemo(() => {
     const m = new Map(); allZones.forEach((z) => m.set(z, 0));
     graph.nodes.forEach((n) => { const z = normalizeZoneVal(n.zone); if (m.has(z)) m.set(z, (m.get(z) || 0) + 1); });
-    return m; 
+    return m;
   }, [graph.nodes, allZones]);
 
   const [selectedZones, setSelectedZones] = useState([]);
   useEffect(() => { setSelectedZones(allZones); }, [allZones]);
-  // strictZones feature removed — use selectedZones checkboxes for zone filtering
 
-  // Local UI-only link type filter to avoid re-querying the backend
-  const [linkTypeFilter, setLinkTypeFilter] = useState('all'); 
+  // Local UI-only link type filter
+  const [linkTypeFilter, setLinkTypeFilter] = useState('all');
 
   const [activeZone, setActiveZone] = useState(null);
-  // Zone 상세로 들어갈 때 현재 노드/링크 배열을 얕은 복사로 캐시에 저장
-  useEffect(() => {
-    if (activeZone !== null) {
-      try {
-        VIEW_CACHE.set(view, { nodes: graph.nodes.slice(), links: graph.links.slice() });
-      } catch (e) { /* noop */ }
-    }
-  }, [activeZone, view, graph.nodes, graph.links]);
   const filtered = useMemo(() => {
     const base = buildFilteredGraph(graph, selectedZones);
     if (!base || !base.links) return base;
+
     // apply link type filter
     let links = base.links;
     if (linkTypeFilter !== 'all') {
       const wantPhysical = linkTypeFilter === 'physical';
       links = links.filter((l) => (String(l.type || '').toLowerCase() === (wantPhysical ? 'physical' : 'logical')));
     }
-
- 
-
 
     const nodeIds = new Set();
     links.forEach((l) => { nodeIds.add(idOf(l.source)); nodeIds.add(idOf(l.target)); });
@@ -342,6 +354,7 @@ export default function NetworkTopology3D_LeftSidebar({ activeView = "default", 
     }
     return { nodes, links };
   }, [graph, selectedZones, linkTypeFilter]);
+
   const adjacency = useMemo(() => buildAdjacency(filtered.links), [filtered.links]);
   const [selectedId, setSelectedId] = useState(null);
   useEffect(() => { setSelectedId(selected?.id ?? null); }, [selected]);
@@ -403,7 +416,7 @@ export default function NetworkTopology3D_LeftSidebar({ activeView = "default", 
 
   const getBaseMat = (hex) => { let m = nodeMatCache.base.get(hex); if (!m) { m = new THREE.MeshStandardMaterial({ color: new THREE.Color(hex), metalness: 0.25, roughness: 0.72 }); nodeMatCache.base.set(hex, m); } return m; };
 
-  // 링크 머티리얼
+  // 링크 머티리얼 (물리 링크용)
   const linkMats = useMemo(() => ({
     dashed: new THREE.LineDashedMaterial({ color: 0x87aafc, dashSize: 2.2, gapSize: 2.2, transparent: true, opacity: 0.95 }),
     dashedInc: new THREE.LineDashedMaterial({ color: 0x3a6fe2, dashSize: 4.4, gapSize: 3.2, transparent: true, opacity: 1.0 }),
@@ -428,14 +441,13 @@ export default function NetworkTopology3D_LeftSidebar({ activeView = "default", 
     } else if (node.kind === "hub") mesh = new THREE.Mesh(geoCache.octa, mat);
     else mesh = new THREE.Mesh(geoCache.sphere, mat);
 
-    // ★ 노드 크기 상향 (연결수에 따라 가변 + 전역 배율)
-    const base = node.kind === "core" ? 1.8 : 1.35 + (node.__deg || 0) * 0.08;
-    const s = Math.max(1.2, Math.min(3.2, base)) * UI.NODE_SCALE_MULT;
+    // 노드 크기 (연결수 영향 + 전역 배율)
+    const s = estimateNodeScale(node);
     mesh.scale.set(s, s, s);
     mesh.castShadow = true; mesh.receiveShadow = true; group.add(mesh);
 
     const led = new THREE.Mesh(geoCache.led, node.status === "up" ? nodeMatCache.ledUp : nodeMatCache.ledDown);
-    led.position.set(0, node.kind === "core" ? 8 : 6 * s * 0.9, 0); // 높이 보정
+    led.position.set(0, node.kind === "core" ? 8 : 6 * s * 0.9, 0);
     group.add(led);
 
     const hit = new THREE.Mesh(geoCache.hit, nodeMatCache.hit); hit.name = "hit-proxy"; group.add(hit);
@@ -446,7 +458,7 @@ export default function NetworkTopology3D_LeftSidebar({ activeView = "default", 
   const isPhysicalLink = (l) => String(l.type || "").toLowerCase() === "physical";
 
   const linkWidth = (l) => {
-    if (isLogicalLink(l)) return 0;
+    if (isLogicalLink(l)) return 0; // 기본 선 숨김 (대신 커스텀 대시 렌더)
     return selectedId ? (isIncident(l) ? UI.PHYSICAL_LINK_WIDTH.inc : UI.PHYSICAL_LINK_WIDTH.base) : UI.PHYSICAL_LINK_WIDTH.base;
   };
 
@@ -470,53 +482,74 @@ export default function NetworkTopology3D_LeftSidebar({ activeView = "default", 
   }, []);
 
   const updateLogicalDashed = useCallback((l, group) => {
-    // 안전 해석: source/target이 id 문자열일 수 있음 -> 노드 객체로 찾기
-    let src = l.source; let tgt = l.target;
-    if (!src || !tgt) return;
-    if (typeof src === 'string' || typeof src === 'number') src = graph.nodes.find(n => String(n.id) === String(src));
-    if (typeof tgt === 'string' || typeof tgt === 'number') tgt = graph.nodes.find(n => String(n.id) === String(tgt));
+    // 안전 해석 (ID → 노드)
+    const sid = getId(l.source);
+    const tid = getId(l.target);
+    const src = (typeof l.source === 'object' && l.source) ||
+                filtered.nodes.find(n => n.id === sid) ||
+                graph.nodes.find(n => n.id === sid);
+    const tgt = (typeof l.target === 'object' && l.target) ||
+                filtered.nodes.find(n => n.id === tid) ||
+                graph.nodes.find(n => n.id === tid);
+
     if (!src || !tgt) { group.visible = false; return; }
-
-    // 계산 중 잠시 숨김(좌표 준비/트리밍 동안 깜빡임 방지)
-    const prevVis = group.visible; group.visible = false;
-
-    const start = new THREE.Vector3(src.x || 0, src.y || 0, src.z || 0);
-    const end   = new THREE.Vector3(tgt.x || 0, tgt.y || 0, tgt.z || 0);
-
-    // 노드 겹침을 피하기 위해 끝단을 노드 클리어런스만큼 안쪽으로 트리밍
-    const estimateClearance = (node) => {
-      if (!node) return 3.0;
-      const deg = node.__deg || 0;
-      const s = node.kind === 'core' ? 1.4 : Math.max(0.9, Math.min(1.8, 0.95 + (deg) * 0.06));
-      return 3.0 * s;
-    };
-    const cStart = estimateClearance(src);
-    const cEnd = estimateClearance(tgt);
-    const totalVec = new THREE.Vector3().subVectors(end, start);
-    const totalLen = totalVec.length() || 1;
-    const dir = totalVec.clone().normalize();
-    const trimmedStart = start.clone().add(dir.clone().multiplyScalar(Math.min(cStart, totalLen * 0.4)));
-    const trimmedEnd = end.clone().add(dir.clone().multiplyScalar(-Math.min(cEnd, totalLen * 0.4)));
-
-    const curve = getCurve(trimmedStart, trimmedEnd, linkCurvature(l), linkCurveRotation(l));
-    const dashCount = DASH_CONF.count; const dashRatio = DASH_CONF.ratio;
-    ensureDashMeshes(group, dashCount, geoCache.dashUnit, nodeMatCache.dashedBase, nodeMatCache.dashedInc);
-    const incident = !!(selectedId && isIncident(l));
-    const radius = incident ? DASH_CONF.incRadius : DASH_CONF.baseRadius; const mat = incident ? group.userData.matInc : group.userData.matBase;
-    // endpoints trimming and per-dash cap trim
-    const EPS = 1.0 / (dashCount * 12);
-    const capTrim = Math.min(0.08, Math.max(0.02, (cStart + cEnd) / (totalLen * 4)));
-    for (let i = 0; i < dashCount; i++) {
-      const baseT0 = i / dashCount;
-      const baseT1 = Math.min(1, baseT0 + (dashRatio / dashCount));
-      const t0 = Math.max(0 + capTrim, baseT0 + EPS);
-      const t1 = Math.min(1 - capTrim, baseT1 - EPS);
-      if (t1 <= t0) { const mesh = group.userData.dashes[i]; if (mesh) mesh.visible = false; continue; }
-      const a = curve.getPoint(t0); const b = curve.getPoint(t1);
-      const mesh = group.userData.dashes[i]; if (!mesh) continue; mesh.material = mat; placeCylinderBetween(mesh, a, b, Math.max(0.2, radius));
+    if ([src.x, src.y, src.z, tgt.x, tgt.y, tgt.z].some(v => typeof v !== 'number')) {
+      group.visible = false; // 좌표 준비 전이면 잠깐 숨김
+      return;
     }
-    group.visible = !!prevVis;
-  }, [geoCache.dashUnit, nodeMatCache.dashedBase, nodeMatCache.dashedInc, selectedId, isIncident, linkCurvature, graph.nodes]);
+
+    const start = new THREE.Vector3(src.x, src.y, src.z);
+    const end   = new THREE.Vector3(tgt.x, tgt.y, tgt.z);
+
+    // 곡선 생성
+    const curve = getCurve(start, end, linkCurvature(l), ((hashId(sid) + hashId(tid)) % 628) / 100);
+
+    // 양 끝 트림 (노드 반경 + 여유)
+    const totalLen     = Math.max(1e-6, curve.getLength());
+    const startTrimLen = getNodeClearance(src);
+    const endTrimLen   = getNodeClearance(tgt);
+    if (totalLen <= (startTrimLen + endTrimLen) * 1.05) { group.visible = false; return; }
+    const tStart = Math.min(0.49, startTrimLen / totalLen);
+    const tEnd   = 1 - Math.min(0.49, endTrimLen   / totalLen);
+
+    const dashCount = DASH_CONF.count, dashRatio = DASH_CONF.ratio;
+    ensureDashMeshes(group, dashCount, geoCache.dashUnit, nodeMatCache.dashedBase, nodeMatCache.dashedInc);
+
+    const incident = !!(selectedId && (sid === selectedId || tid === selectedId));
+    const radius   = incident ? DASH_CONF.incRadius  : DASH_CONF.baseRadius;
+    const mat      = incident ? group.userData.matInc : group.userData.matBase;
+    const capTrim  = Math.min(0.6 * radius, 1.2);
+
+    const segSpan = (tEnd - tStart);
+    if (segSpan <= 1e-4) { group.visible = false; return; }
+
+    for (let i = 0; i < dashCount; i++) {
+      const base_t0 = tStart + (i / dashCount) * segSpan;
+      const base_t1 = tStart + Math.min(tEnd, (i + dashRatio) / dashCount * segSpan);
+
+      const t0 = Math.max(tStart, base_t0);
+      const t1 = Math.min(tEnd,   base_t1);
+      const mesh = group.userData.dashes[i];
+      if (!mesh || t1 - t0 <= 1e-4) { if (mesh) mesh.visible = false; continue; }
+
+      const a = curve.getPoint(t0);
+      const b = curve.getPoint(t1);
+      const dir = new THREE.Vector3().subVectors(b, a);
+      const L = dir.length();
+      if (L < 1e-3) { mesh.visible = false; continue; }
+      dir.normalize();
+
+      const a2 = a.clone().addScaledVector(dir,  capTrim);
+      const b2 = b.clone().addScaledVector(dir, -capTrim);
+
+      mesh.material = mat;
+      mesh.renderOrder = 2;
+      if (mesh.material) { mesh.material.depthTest = true; mesh.material.depthWrite = false; mesh.material.needsUpdate = true; }
+      placeCylinderBetween(mesh, a2, b2, Math.max(0.18, radius));
+    }
+
+    group.visible = true;
+  }, [filtered.nodes, graph.nodes, geoCache.dashUnit, nodeMatCache.dashedBase, nodeMatCache.dashedInc, selectedId, linkCurvature]);
 
   const refreshAllDashed = useCallback(() => {
     const scene = fgRef.current?.scene?.(); if (!scene) return;
@@ -529,8 +562,8 @@ export default function NetworkTopology3D_LeftSidebar({ activeView = "default", 
     const node = filtered.nodes.find((n) => n.id === nodeId) || graph.nodes.find((n) => n.id === nodeId);
     if (!node) return;
     setSelected(node);
-    const distance = 150; // ↓ 약간 더 가깝게
-    const zFixed = 640;   // ↓ 카메라 z 축소
+    const distance = 150;
+    const zFixed = 640;
     const distRatio = 1 + distance / Math.hypot(node.x || 1, node.y || 1, node.z || 1);
     fgRef.current?.cameraPosition({ x: (node.x || 1) * distRatio, y: (node.y || 1) * distRatio, z: zFixed }, node, 900);
   }, [filtered.nodes, graph.nodes]);
@@ -539,7 +572,6 @@ export default function NetworkTopology3D_LeftSidebar({ activeView = "default", 
     const timer = setTimeout(() => { const core = graph.nodes.find((n) => n.kind === "core"); if (core) focusNodeById(core.id); }, 300);
     return () => clearTimeout(timer);
   }, [graph.nodes, focusNodeById]);
-
 
   const toggleZone = (z) => {
     setSelected((prev) => (prev && normalizeZoneVal(prev.zone) === z ? null : prev));
@@ -566,14 +598,14 @@ export default function NetworkTopology3D_LeftSidebar({ activeView = "default", 
     return () => { window.removeEventListener("keydown", onKeyDown); window.removeEventListener("keyup", onKeyUp); el.removeEventListener("mousedown", onMouseDown); window.removeEventListener("mouseup", onMouseUp); };
   }, []);
 
-  if (activeZone !== null) { return <ZonePage zone={activeZone} onBack={() => setActiveZone(null)} onInspectorChange={onInspectorChange} />; }
+  // Zone 상세는 모달로 오버레이 렌더: 메인 그래프가 언마운트되지 않도록 함
 
   return (
     <div style={{width:'100%',height:'100vh',background:'linear-gradient(135deg,#0b0f18,#0a0c10)',borderRadius:0,overflow:'hidden',border:'1px solid rgba(255,255,255,0.10)',boxShadow:'0 8px 32px 0 #0006',display:'flex'}}>
-  {/* 왼쪽 세로 툴바 */}
+      {/* 왼쪽 세로 툴바 */}
       <aside style={{width:280,flex:'none',background:'rgba(0,0,0,0.30)',backdropFilter:'blur(6px)',borderRight:'1px solid rgba(255,255,255,0.10)',padding:16,display:'flex',flexDirection:'column',borderRadius:0}}>
         <div style={{height:1, background:'rgba(255,255,255,0.10)', margin:'6px 0 10px'}} />
-  {/* 링크 유형 */}
+        {/* 링크 유형 */}
         <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8}}>
           <span style={{fontSize:13, color:'#cbd5e1'}}>Link Type</span>
         </div>
@@ -630,8 +662,8 @@ export default function NetworkTopology3D_LeftSidebar({ activeView = "default", 
         </div>
       </aside>
 
-  {/* 그래프 영역 */}
-      <main style={{flex:1,height:'100%'}}>
+      {/* 그래프 영역 */}
+      <main style={{flex:1,height:'100%', position:'relative'}}>
         <ForceGraph3D
           ref={fgRef}
           graphData={filtered}
@@ -645,7 +677,7 @@ export default function NetworkTopology3D_LeftSidebar({ activeView = "default", 
           linkMaterial={linkMaterial}
           linkDirectionalParticles={linkDirectionalParticles}
           linkDirectionalParticleSpeed={linkDirectionalParticleSpeed}
-          linkDirectionalParticleWidth={2.0}  // 입자 두께↑
+          linkDirectionalParticleWidth={2.0}
           linkCurvature={linkCurvature}
           linkCurveRotation={linkCurveRotation}
           linkDirectionalArrowLength={6.0}
@@ -655,6 +687,13 @@ export default function NetworkTopology3D_LeftSidebar({ activeView = "default", 
             scene.traverse((obj) => { if (obj.userData?.type === 'logical-dashed' && obj.userData.link) { updateLogicalDashed(obj.userData.link, obj); } });
           }}
           onEngineStop={() => { refreshAllDashed(); }}
+          onLinkUpdate={(l, obj) => {
+            try { if (obj && obj.computeLineDistances) obj.computeLineDistances(); } catch {}
+            if (String(l.type || '').toLowerCase() === 'logical') {
+              const scene = fgRef.current?.scene?.(); if (!scene) return;
+              scene.traverse((o) => { if (o.userData?.type === 'logical-dashed' && o.userData.link === l) { updateLogicalDashed(l, o); } });
+            }
+          }}
           onNodeClick={(n)=>setSelected(n)}
           onBackgroundClick={()=>setSelected(null)}
           enableNodeDrag={false}
@@ -670,6 +709,15 @@ export default function NetworkTopology3D_LeftSidebar({ activeView = "default", 
           </div>
         )}
       </main>
+      {/* Zone 상세를 모달 오버레이로 렌더링 (메인 그래프 언마운트 방지) */}
+      {activeZone !== null && (
+        <div style={{position:'fixed',left:0,top:0,right:0,bottom:0,display:'flex',alignItems:'center',justifyContent:'center',zIndex:60}}>
+          <div onClick={() => setActiveZone(null)} style={{position:'absolute',left:0,top:0,right:0,bottom:0,background:'rgba(0,0,0,0.6)'}} />
+          <div style={{position:'relative',width:'88%',height:'84%',background:'#0b0f14',borderRadius:12,boxShadow:'0 12px 40px rgba(0,0,0,0.8)',overflow:'hidden',border:'1px solid rgba(255,255,255,0.04)'}}>
+            <ZonePage zone={activeZone} onBack={() => setActiveZone(null)} onInspectorChange={onInspectorChange} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

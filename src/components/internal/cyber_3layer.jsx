@@ -6,6 +6,13 @@ import * as THREE from 'three';
 const LAYERS = { physical: 'physical', logical: 'logical', persona: 'persona' };
 const STATUS = ['up', 'down', 'unknown'];
 const LAYER_COLORS = { physical: '#3BA3FF', logical: '#9B6BFF', persona: '#FF9E3B' };
+// Layout tuning: increase spreads/heights for clearer multi-layer visualization
+const LAYOUT = {
+  nodeSpread: 800,        // base random spread for x/y (was ~400)
+  layerZ: { physical: -600, logical: 0, persona: 600 }, // increased vertical separation
+  plane: { width: 2000, height: 1400 }, // bigger layer planes
+  subnetRadius: 420      // radius used for subnet cluster placement (was 220)
+};
 const KIND_COLORS = {
   CONNECTS_TO: '#A0AEC0',
   CONNECTED: '#A0AEC0',
@@ -22,13 +29,8 @@ const API_BASE = (typeof process !== 'undefined' && process.env && process.env.R
 const PROJECT_FILTER = 'multi-layer'; // 또는 null
 
 // ===================== 유틸 =====================
-const randItem = (arr) => arr[Math.floor(Math.random() * arr.length)];
-function maskName(name = '') {
-  if (!name) return '';
-  const parts = name.trim().split(/\s+/);
-  const initials = parts.map(p => p[0]?.toUpperCase()).filter(Boolean).join('.') + '.';
-  return initials;
-}
+// const randItem = (arr) => arr[Math.floor(Math.random() * arr.length)];
+// maskName removed — not used after removing layer-specific detail panel
 const isCrossLayer = (a, b) => a.layer !== b.layer;
 
 // ===================== 정규화: Node/Edge =====================
@@ -47,7 +49,7 @@ function normalizeNode(raw) {
   let label = raw.label || raw.hostname || raw.name || raw.user_name || raw.service_name || raw.subnet || raw.ip || raw.id;
   if (!label && raw.vlan !== undefined) label = `VLAN-${raw.vlan}`;
 
-  return {
+    return {
     id: raw.id,
     layer,
     type,
@@ -67,10 +69,10 @@ function normalizeNode(raw) {
     dept: raw.dept,
     device_ids: raw.device_ids || [],
     tags: raw.tags || [],
-    // 초기 위치 (레이어별 z 고정)
-    x: (Math.random() - 0.5) * 400,
-    y: (Math.random() - 0.5) * 400,
-    z: layer === 'persona' ? 240 : layer === 'logical' ? 0 : -240
+  // 초기 위치 (레이어별 z 고정) — 노드를 레이어 평면 영역에 골고루 분포시킴
+  x: (Math.random() - 0.5) * LAYOUT.plane.width * 0.9,
+  y: (Math.random() - 0.5) * LAYOUT.plane.height * 0.9,
+    z: layer === 'persona' ? LAYOUT.layerZ.persona : layer === 'logical' ? LAYOUT.layerZ.logical : LAYOUT.layerZ.physical
   };
 }
 
@@ -119,7 +121,7 @@ function mergeRecordsToGraph(allRecords) {
   const subnetCenters = new Map();
   subs.forEach((s, i) => {
     const angle = (i / Math.max(1, subs.length)) * Math.PI * 2;
-    const radius = 220;
+    const radius = LAYOUT.subnetRadius;
     subnetCenters.set(s.subnet || s.label || s.id, { cx: Math.cos(angle) * radius, cy: Math.sin(angle) * radius });
   });
   devs.forEach(d => {
@@ -157,9 +159,9 @@ export function buildAdjacency(nodes, links) {
 function generateMockGraph() {
   const nodes = [];
   const links = [];
-  for (let i = 0; i < 30; i++) nodes.push({ id: `dev-${i}`, layer: 'physical', type: 'server', label: `DEV-${i}`, status: 'up', severity: 0, x: (Math.random()-0.5)*400, y: (Math.random()-0.5)*400, z: -240 });
-  for (let i = 0; i < 10; i++) nodes.push({ id: `svc-${i}`, layer: 'logical', type: 'service', label: `SVC-${i}`, status: 'up', severity: 0, x: (Math.random()-0.5)*400, y: (Math.random()-0.5)*400, z: 0 });
-  for (let i = 0; i < 10; i++) nodes.push({ id: `user-${i}`, layer: 'persona', type: 'user', label: `USER-${i}`, status: 'up', severity: 0, x: (Math.random()-0.5)*400, y: (Math.random()-0.5)*400, z: 240 });
+  for (let i = 0; i < 30; i++) nodes.push({ id: `dev-${i}`, layer: 'physical', type: 'server', label: `DEV-${i}`, status: 'up', severity: 0, x: (Math.random()-0.5)*LAYOUT.nodeSpread, y: (Math.random()-0.5)*LAYOUT.nodeSpread, z: LAYOUT.layerZ.physical });
+  for (let i = 0; i < 10; i++) nodes.push({ id: `svc-${i}`, layer: 'logical', type: 'service', label: `SVC-${i}`, status: 'up', severity: 0, x: (Math.random()-0.5)*LAYOUT.nodeSpread, y: (Math.random()-0.5)*LAYOUT.nodeSpread, z: LAYOUT.layerZ.logical });
+  for (let i = 0; i < 10; i++) nodes.push({ id: `user-${i}`, layer: 'persona', type: 'user', label: `USER-${i}`, status: 'up', severity: 0, x: (Math.random()-0.5)*LAYOUT.nodeSpread, y: (Math.random()-0.5)*LAYOUT.nodeSpread, z: LAYOUT.layerZ.persona });
   for (let i = 0; i < 80; i++) links.push({ source: `dev-${Math.floor(Math.random()*30)}`, target: `svc-${Math.floor(Math.random()*10)}`, kind: 'HOSTS' });
   for (let i = 0; i < 80; i++) links.push({ source: `user-${Math.floor(Math.random()*10)}`, target: `svc-${Math.floor(Math.random()*10)}`, kind: 'USES' });
   return { nodes, links };
@@ -188,33 +190,6 @@ function NodeDetailPanel({ selected, adj, visible, byId, onClearSelection, onRes
           <div><b>Severity:</b> {selected.severity}</div>
           {Array.isArray(selected.tags) && selected.tags.length > 0 && (<div><b>Tags:</b> {selected.tags.join(', ')}</div>)}
         </div>
-      </div>
-      <div style={{ padding: 16, borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
-        <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 12, color: '#fff' }}>레이어별 상세</div>
-        {selected.layer === 'physical' && (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: 16, rowGap: 4, fontSize: 12, color: '#d1d5db' }}>
-            <div><b>IP</b><div>{selected.ip || '-'}</div></div>
-            <div><b>Host</b><div>{selected.hostname || '-'}</div></div>
-            <div><b>OS</b><div>{selected.os || '-'}</div></div>
-            <div><b>Subnet</b><div>{selected.subnet || '-'}</div></div>
-          </div>
-        )}
-        {selected.layer === 'logical' && (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: 16, rowGap: 4, fontSize: 12, color: '#d1d5db' }}>
-            <div><b>Service</b><div>{selected.service_name || '-'}</div></div>
-            <div><b>Proto/Port</b><div>{selected.proto || '-'}{selected.port ? `/${selected.port}` : ''}</div></div>
-            <div><b>Subnet</b><div>{selected.subnet || '-'}</div></div>
-            <div><b>VLAN</b><div>{selected.vlan ?? '-'}</div></div>
-          </div>
-        )}
-        {selected.layer === 'persona' && (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: 16, rowGap: 4, fontSize: 12, color: '#d1d5db' }}>
-            <div><b>User</b><div>{maskName(selected.user_name) || '-'}</div></div>
-            <div><b>Role</b><div>{selected.role || '-'}</div></div>
-            <div><b>Dept</b><div>{selected.dept || '-'}</div></div>
-            <div><b>Devices</b><div>{Array.isArray(selected.device_ids) ? selected.device_ids.length : 0}</div></div>
-          </div>
-        )}
       </div>
       <ConnLists selectedId={selected.id} visible={visible} adj={adj} byId={byId} />
       <div style={{ padding: 12, borderTop: '1px solid rgba(255,255,255,0.1)', display: 'flex', gap: 8 }}>
@@ -273,21 +248,16 @@ function ConnList({ listType, selectedId, visible, byId, adj }) {
 }
 
 // ===================== 테스트 헬퍼 =====================
-export const __tests__ = {
-  shouldZoomOnNodeClick: () => false,
-  yawLimitIsThirtyDeg: () => Math.abs(Math.PI/6 - (30*Math.PI/180)) < 1e-12,
-  xyzStepRadians: () => Math.PI/60,
-  clampInfinity: () => THREE.MathUtils.clamp(42, -Infinity, Infinity) === 42,
-  eulerOrderYXZ: () => { const e = new THREE.Euler(0,0,0,'YXZ'); return e.order === 'YXZ'; }
-};
+// test helpers removed — not referenced elsewhere in the project
 
 // ===================== 메인 컴포넌트 =====================
-export default function CyberMultiLayer3D({ onNodeSelect = () => {} }) {
+export default function CyberMultiLayer3D({ onNodeSelect = () => {}, onInspectorChange = () => {} }) {
   const fgRef = useRef();
 
   const [graphData, setGraphData] = useState({ nodes: [], links: [] });
   const [pulse, setPulse] = useState(false);
   const [selectedId, setSelectedId] = useState(null);
+  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [layerFilter, setLayerFilter] = useState({ physical: true, logical: true, persona: true });
   const [assumedFilter, setAssumedFilter] = useState('all');
@@ -301,21 +271,23 @@ export default function CyberMultiLayer3D({ onNodeSelect = () => {} }) {
     const existing = scene.getObjectByName('layer-planes'); if (existing) scene.remove(existing);
     const group = new THREE.Group(); group.name = 'layer-planes';
     const makePlane = (z, color, label) => {
-      const planeGeo = new THREE.PlaneGeometry(1200, 800, 1, 1);
+      const planeGeo = new THREE.PlaneGeometry(LAYOUT.plane.width, LAYOUT.plane.height, 1, 1);
       const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.06, depthWrite: false });
       const mesh = new THREE.Mesh(planeGeo, mat); mesh.position.set(0, 0, z);
       const edges = new THREE.EdgesGeometry(planeGeo);
       const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.25 }));
       line.position.set(0, 0, z + 0.1);
-      const canvas = document.createElement('canvas'); canvas.width = 256; canvas.height = 64; const ctx = canvas.getContext('2d');
-      ctx.fillStyle = 'rgba(0,0,0,0)'; ctx.fillRect(0,0,256,64); ctx.font = '28px sans-serif'; ctx.fillStyle = '#ffffff'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillText(label, 10, 32);
-      const tex = new THREE.CanvasTexture(canvas); const sprMat = new THREE.SpriteMaterial({ map: tex, transparent: true, opacity: 0.75, depthWrite: false });
-      const sprite = new THREE.Sprite(sprMat); sprite.scale.set(160, 40, 1); sprite.position.set(-520, 340, z + 0.2);
+  const canvas = document.createElement('canvas'); canvas.width = 512; canvas.height = 128; const ctx = canvas.getContext('2d');
+  ctx.fillStyle = 'rgba(0,0,0,0)'; ctx.fillRect(0,0,512,128); ctx.font = '40px sans-serif'; ctx.fillStyle = '#ffffff'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillText(label, 14, 64);
+  const tex = new THREE.CanvasTexture(canvas); const sprMat = new THREE.SpriteMaterial({ map: tex, transparent: true, opacity: 0.9, depthWrite: false });
+  const sprite = new THREE.Sprite(sprMat); sprite.scale.set(320, 80, 1);
+  // position label at top-left corner of plane area (with margin)
+  sprite.position.set(-LAYOUT.plane.width/2 + 180, LAYOUT.plane.height/2 - 80, z + 0.2);
       group.add(mesh); group.add(line); group.add(sprite);
     };
-    makePlane(-240, LAYER_COLORS.physical, 'Physical');
-    makePlane(0,    LAYER_COLORS.logical,  'Logical');
-    makePlane(240,  LAYER_COLORS.persona,  'Persona');
+  makePlane(LAYOUT.layerZ.physical, LAYER_COLORS.physical, 'Physical');
+  makePlane(LAYOUT.layerZ.logical,  LAYER_COLORS.logical,  'Logical');
+  makePlane(LAYOUT.layerZ.persona,  LAYER_COLORS.persona,  'Persona');
     scene.add(group);
   };
   const toggleLayerPlanes = (visible) => { const scene = fgRef.current?.scene?.(); const group = scene?.getObjectByName('layer-planes'); if (group) group.visible = !!visible; };
@@ -348,12 +320,16 @@ export default function CyberMultiLayer3D({ onNodeSelect = () => {} }) {
     let mounted = true;
     (async () => {
       try {
+        if (mounted) setLoading(true);
+      } catch (e) {}
+      try {
         const records = await fetchThreeLayer(PROJECT_FILTER || undefined);
         const g = mergeRecordsToGraph(records);
         if (mounted) setGraphData(g);
       } catch (e) {
-        console.warn('[API 실패] 모킹 그래프로 대체합니다:', e);
         if (mounted) setGraphData(generateMockGraph());
+      } finally {
+        if (mounted) setLoading(false);
       }
     })();
     return () => { mounted = false; };
@@ -426,9 +402,16 @@ export default function CyberMultiLayer3D({ onNodeSelect = () => {} }) {
   const linkParticles = (l) => { if (!pulse || !selectedId) return 0; const s = l.source; const t = l.target; if (!s || !t || typeof s.id === 'undefined' || typeof t.id === 'undefined') return 0; const touchesSel = s.id === selectedId || t.id === selectedId; return touchesSel && isCrossLayer(s, t) ? 2 : 0; };
   const linkMaterial = (l) => { const color = new THREE.Color(linkColor(l)); if (l.assumed) { try { return new THREE.LineDashedMaterial({ color, dashSize: 2, gapSize: 1, transparent: true, opacity: isLinkDimmed(l) ? 0.25 : 0.65 }); } catch { return new THREE.LineBasicMaterial({ color, transparent: true, opacity: isLinkDimmed(l) ? 0.25 : 0.65 }); } } return new THREE.LineBasicMaterial({ color, transparent: true, opacity: isLinkDimmed(l) ? 0.25 : 0.95 }); };
 
-  const onBackgroundClick = () => { setSelectedId(null); onNodeSelect(null); };
+  const onBackgroundClick = () => { setSelectedId(null); onNodeSelect(null); onInspectorChange(null); };
   const resetView = () => { setSelectedId(null); onNodeSelect(null); const fg = fgRef.current; if (!fg) return; try { const rot = fg.scene().rotation; rot.order='YXZ'; rot.x = 0; rot.y = 0; rot.z = 0; } catch {} fg.cameraPosition({ x: 0, y: 1800, z: 0 }, { x: 0, y: 0, z: 0 }, 600); };
-  const onNodeClick = (node) => { setSelectedId(node?.id || null); if (node) { onNodeSelect(<NodeDetailPanel selected={node} adj={adj} visible={visible} byId={byId} onClearSelection={onBackgroundClick} onResetView={resetView} />); } else { onNodeSelect(null); } };
+  const onNodeClick = (node) => {
+    setSelectedId(node?.id || null);
+    if (node) {
+      const panel = <NodeDetailPanel selected={node} adj={adj} visible={visible} byId={byId} onClearSelection={onBackgroundClick} onResetView={resetView} />;
+      onNodeSelect(panel);
+      try { onInspectorChange(panel); } catch(e) {}
+    } else { onNodeSelect(null); onInspectorChange(null); }
+  };
   const onLinkClick = (l) => { const sid = l.__sid || (typeof l.source==='object'?l.source.id:l.source); const node = byId[sid]; if (node) onNodeClick(node); };
   const onLinkUpdate = (link, threeObj) => { try { const line = link.__lineObj || threeObj; if (line && line.computeLineDistances) line.computeLineDistances(); } catch {} };
 
@@ -506,6 +489,11 @@ export default function CyberMultiLayer3D({ onNodeSelect = () => {} }) {
           enableNodeDrag={false}
           showNavInfo={false}
         />
+        {loading && (
+          <div style={{position:'absolute',left:0,top:0,right:0,bottom:0,display:'flex',alignItems:'center',justifyContent:'center',pointerEvents:'none'}}>
+            <div style={{background:'rgba(0,0,0,0.6)',color:'#fff',padding:'12px 18px',borderRadius:8,backdropFilter:'blur(4px)'}}>Loading…</div>
+          </div>
+        )}
       </div>
     </div>
   );

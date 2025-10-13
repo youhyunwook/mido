@@ -64,14 +64,6 @@ class Neo4jConnector:
 
     # ---------------- Core ----------------
     def fetch_nodes(self, activeView: str = "default", project: Optional[str] = None):
-        """
-        activeView:
-          - default / physical / logical / persona
-          - 3layer / cyber3layer / threelayer  ⟵ HOSTS + USES 둘 다
-          - externalInternal / internalOnly / externalOnly
-          - zone3 / zone3_strict
-          - subnet:10.0.0.0/24
-        """
         def safe_serialize(obj):
             try:
                 d = dict(obj)
@@ -108,62 +100,74 @@ class Neo4jConnector:
 
         # === (A) 3계층: HOSTS + USES 모두 조회 ===
         if activeView in {"3layer", "cyber3layer", "threelayer"}:
-            # project 필터는 선택적
-            params = {"project": project} if project else {}
-            query = """
-            // Physical -> Logical
-            CALL {
-              WITH $project AS p
-              MATCH p1 = (ph:Physical)-[r1:HOSTS]->(lg:Logical)
-              WHERE p IS NULL
-                 OR coalesce(ph.project,'') = p
-                 OR coalesce(lg.project,'') = p
-              RETURN p1 AS p, 'HOSTS' AS rel_type
-              LIMIT 400
-            }
-            UNION ALL
-            // Logical -> Persona
-            CALL {
-              WITH $project AS p
-              MATCH p2 = (lg:Logical)-[r2:USES]->(pr:Persona)
-              WHERE p IS NULL
-                 OR coalesce(lg.project,'') = p
-                 OR coalesce(pr.project,'') = p
-              RETURN p2 AS p, 'USES' AS rel_type
-              LIMIT 400
-            }
-            RETURN p, rel_type
-            LIMIT 800
+            # project 필터는 선택적이지만, Cypher에서 WITH $project AS p 를 사용하므로
+            # 항상 파라미터를 전달합니다 (없다면 None을 전달하여 p가 NULL이 되게 함).
+            params = {"project": project}
+
+            # Some Neo4j setups don't support CALL {...} subqueries; split into two MATCH queries
+            query_hosts = """
+            MATCH p1 = (ph:Physical)-[r1:HOSTS]->(lg:Logical)
+            WHERE $project IS NULL
+               OR coalesce(ph.project,'') = $project
+               OR coalesce(lg.project,'') = $project
+            RETURN p1 AS p, 'HOSTS' AS rel_type
+            LIMIT 400
             """
+
+            query_uses = """
+            MATCH p2 = (lg:Logical)-[r2:USES]->(pr:Persona)
+            WHERE $project IS NULL
+               OR coalesce(lg.project,'') = $project
+               OR coalesce(pr.project,'') = $project
+            RETURN p2 AS p, 'USES' AS rel_type
+            LIMIT 400
+            """
+
+            # 추가: Physical-Physical 동일 레이어 연결을 가져옴 (프로젝트 필터 적용)
+            query_physical = """
+            MATCH p3 = (ph1:Physical)-[r3]-(ph2:Physical)
+            WHERE $project IS NULL
+               OR coalesce(ph1.project,'') = $project
+               OR coalesce(ph2.project,'') = $project
+            RETURN p3 AS p, 'PHYSICAL' AS rel_type
+            LIMIT 78
+            """
+
             records = []
             with self.driver.session(database=DBNAME) as session:
-                result = session.run(query, **params)
-                for rec in result:
-                    path = rec.get("p")
-                    rel_type = rec.get("rel_type")
-                    if not path or not path.relationships:
-                        continue
-                    n_obj = path.start_node
-                    t_obj = path.end_node
-                    r_obj = path.relationships[0]
+                try:
+                    for q in (query_hosts, query_uses, query_physical):
+                        result = session.run(q, **params)
+                        for rec in result:
+                            path = rec.get("p")
+                            rel_type = rec.get("rel_type")
+                            if not path or not path.relationships:
+                                continue
+                            n_obj = path.start_node
+                            t_obj = path.end_node
+                            r_obj = path.relationships[0]
 
-                    src = safe_serialize(n_obj) if n_obj else {}
-                    dst = safe_serialize(t_obj) if t_obj else {}
-                    edge = dict(r_obj) if r_obj else {}
-                    edge["rel"] = rel_type  # "HOSTS" | "USES"
+                            src = safe_serialize(n_obj) if n_obj else {}
+                            dst = safe_serialize(t_obj) if t_obj else {}
+                            edge = dict(r_obj) if r_obj else {}
+                            edge["rel"] = rel_type  # "HOSTS" | "USES"
 
-                    sid = pick_id(src, n_obj)
-                    tid = pick_id(dst, t_obj)
-                    src["id"], dst["id"] = sid, tid
-                    edge["sourceIP"], edge["targetIP"] = sid, tid
+                            sid = pick_id(src, n_obj)
+                            tid = pick_id(dst, t_obj)
+                            src["id"], dst["id"] = sid, tid
+                            edge["sourceIP"], edge["targetIP"] = sid, tid
 
-                    records.append({"src_IP": src, "dst_IP": dst, "edge": edge})
+                            records.append({"src_IP": src, "dst_IP": dst, "edge": edge})
+                except Exception as e:
+                    print(f"[neo4j][3layer] query failed; activeView={activeView} project={project} error={e}")
+                    raise
+
             return records
 
         # === (B) 그 외 뷰(기존) ===
         where_parts, params = [], {}
         order_clause = "ORDER BY rand()"
-        limit_clause = "LIMIT 300"
+        limit_clause = ""
 
         base = """
         MATCH (n:Device)-[r]->(t:Device)

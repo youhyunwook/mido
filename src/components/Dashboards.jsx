@@ -2,9 +2,9 @@ import React, { useState } from "react";
 import ExternalNetwork from "./ExternalNetwork";
 import InternalNetwork from "./InternalNetwork";
 import DashboardMenu from "./DashboardMenu";
-import NetworkTopology from "./network_topology.jsx";
+import NetworkTopology from "./internal/network_topology.jsx";
 import TestPage from "./TestPage.jsx";
-import Cyber3Layer from "./cyber_3layer.jsx";
+import Cyber3Layer from "./internal/cyber_3layer.jsx";
 import ZonePage from "./zones/ZonePage";
 
 import "../App.css";
@@ -36,7 +36,7 @@ function Dashboards() {
         return (
           <>
             <main className="dashboard-main">
-              <ExternalNetwork />
+              <ExternalNetwork /> 
             </main>
             <section className="dashboard-sub-overlay">
               <InternalNetwork />

@@ -603,24 +603,24 @@ export default function NetworkTopology3D_LeftSidebar({ activeView = "default", 
   return (
     <div style={{width:'100%',height:'100vh',background:'linear-gradient(135deg,#0b0f18,#0a0c10)',borderRadius:0,overflow:'hidden',border:'1px solid rgba(255,255,255,0.10)',boxShadow:'0 8px 32px 0 #0006',display:'flex'}}>
       {/* 왼쪽 세로 툴바 */}
-      <aside style={{width:280,flex:'none',background:'rgba(0,0,0,0.30)',backdropFilter:'blur(6px)',borderRight:'1px solid rgba(255,255,255,0.10)',padding:16,display:'flex',flexDirection:'column',borderRadius:0}}>
+      <aside style={{width:280,flex:'none',background:'#f0edfd',backdropFilter:'blur(6px)',borderRight:'1px solid #000000',padding:16,display:'flex',flexDirection:'column',borderRadius:0}}>
         <div style={{height:1, background:'rgba(255,255,255,0.10)', margin:'6px 0 10px'}} />
         {/* 링크 유형 */}
         <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8}}>
-          <span style={{fontSize:13, color:'#cbd5e1'}}>Link Type</span>
+          <span style={{fontSize:13, color:'#000000ff'}}>Link Type</span>
         </div>
         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6,marginBottom:14}}>
-          <button onClick={()=>{ setLinkTypeFilter('physical'); }} style={{ padding:'7px 0',borderRadius:8,fontSize:12, background:(view==="physical" || linkTypeFilter==='physical')?'#2563ebcc':'rgba(255,255,255,0.08)', color:'#fff',border:'1px solid rgba(255,255,255,0.15)',cursor:'pointer' }} title="물리 링크만 보기">Physical</button>
-          <button onClick={()=>{ setLinkTypeFilter('logical'); }} style={{ padding:'7px 0',borderRadius:8,fontSize:12, background:(view==="logical" || linkTypeFilter==='logical')?'#2563ebcc':'rgba(255,255,255,0.08)', color:'#fff',border:'1px solid rgba(255,255,255,0.15)',cursor:'pointer' }} title="논리 링크(점선)만 보기">Logical</button>
+          <button onClick={()=>{ setLinkTypeFilter('physical'); }} style={{ padding:'7px 0',borderRadius:8,fontSize:12, background:(view==="physical" || linkTypeFilter==='physical')?'#2563ebcc':'rgba(240,237,253, 1)', color:'#000000ff',border:'1px solid',cursor:'pointer' }} title="물리 링크만 보기">Physical</button>
+          <button onClick={()=>{ setLinkTypeFilter('logical'); }} style={{ padding:'7px 0',borderRadius:8,fontSize:12, background:(view==="logical" || linkTypeFilter==='logical')?'#2563ebcc':'rgba(240,237,253, 1)', color:'#000000ff',border:'1px solid',cursor:'pointer' }} title="논리 링크(점선)만 보기">Logical</button>
         </div>
         {/* 뷰 초기화 */}
         <div style={{display:'flex',gap:8,marginBottom:12}}>
-          <button onClick={() => { setSelected(null); setSelectedZones(allZones); setLinkTypeFilter('all'); const core = graph.nodes.find((n) => n.kind === "core"); if (core && fgRef.current) { const distance = 150; const zFixed = 640; const distRatio = 1 + distance / Math.hypot(core.x || 1, core.y || 1, core.z || 1); fgRef.current.cameraPosition({ x: (core.x || 1) * distRatio, y: (core.y || 1) * distRatio, z: zFixed }, core, 800); } }} style={{flex:1,padding:'7px 0', borderRadius:8,fontSize:13,background:'#2563ebcc',color:'#fff',border:'1px solid #3b82f6',cursor:'pointer'}}>뷰 초기화</button>
+          <button onClick={() => { setSelected(null); setSelectedZones(allZones); setLinkTypeFilter('all'); const core = graph.nodes.find((n) => n.kind === "core"); if (core && fgRef.current) { const distance = 150; const zFixed = 640; const distRatio = 1 + distance / Math.hypot(core.x || 1, core.y || 1, core.z || 1); fgRef.current.cameraPosition({ x: (core.x || 1) * distRatio, y: (core.y || 1) * distRatio, z: zFixed }, core, 800); } }} style={{flex:1,padding:'7px 0', borderRadius:8,fontSize:13,background:'#39306b',color:'#fff',border:'1px solid #3b82f6',cursor:'pointer'}}>뷰 초기화</button>
         </div>
         {/* Zones 목록 */}
         <div style={{display:'flex',alignItems:'center',gap:8,margin:'8px 0 10px'}}>
           <div style={{width:12,height:12,borderRadius:6,background:'#60a5fa',boxShadow:'0 0 4px #60a5fa'}}></div>
-          <span style={{fontSize:15,color:'#e5e7eb',fontWeight:600}}>Zones</span>
+          <span style={{fontSize:15,color:'#000000ff',fontWeight:600}}>Zones</span>
         </div>
 
         <div style={{flex:1,overflowY:'auto',paddingRight:4}}>
@@ -629,14 +629,14 @@ export default function NetworkTopology3D_LeftSidebar({ activeView = "default", 
             const ct = countByZone.get(z) || 0;
             return (
               <div key={z} style={{border:'1px solid '+(active?'#3b82f6':'#e5e7eb22'),borderRadius:8,marginBottom:8,background:'rgba(255,255,255,0.05)'}}>
-                <button onClick={() => setActiveZone(z)} style={{ width:'100%',textAlign:'left',padding:'10px 14px',fontSize:13,color:active?'#fff':'#cbd5e1',fontWeight:active?600:400,background:'transparent',border:'none',cursor:'pointer' }}>
+                <button onClick={() => setActiveZone(z)} style={{ width:'100%',textAlign:'left',padding:'10px 14px',fontSize:13,color:active?'#000000ff':'#000000ff',fontWeight:active?600:400,background:'transparent',border:'none',cursor:'pointer' }}>
                   <div style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}>
                     <span>Zone {z}</span>
-                    <span style={{fontSize:11,padding:'2px 8px',borderRadius:999,background:'rgba(255,255,255,0.12)',color:'#fff'}}>{ct}</span>
+                    <span style={{fontSize:11,padding:'2px 8px',borderRadius:999,background:'rgba(255,255,255,0.12)',color:'#000000ff'}}>{ct}</span>
                   </div>
                 </button>
                 <div style={{display:'flex',gap:6,padding:'0 10px 10px'}}>
-                  <button onClick={() => setActiveZone(z)} title="존 상세 보기" style={{flex:1,padding:'6px 0',borderRadius:8,fontSize:12,background:'#2563ebcc',color:'#fff',border:'1px solid #3b82f6',cursor:'pointer'}}>Details</button>
+                  <button onClick={() => setActiveZone(z)} title="존 상세 보기" style={{flex:1,padding:'6px 0',borderRadius:8,fontSize:12,background:'#39306b',color:'#fff',border:'1px solid #3b82f6',cursor:'pointer'}}>Details</button>
                 </div>
               </div>
             );
@@ -645,29 +645,29 @@ export default function NetworkTopology3D_LeftSidebar({ activeView = "default", 
 
         {/* Zone filter checkboxes */}
         <div style={{marginTop:'auto',paddingTop:18}}>
-          <div style={{marginBottom:10, fontSize:13, color:'#e5e7eb', fontWeight:600}}>Zone Filter</div>
+          <div style={{marginBottom:10, fontSize:13, color:'#000000ff', fontWeight:600}}>Zone Filter</div>
           <form style={{display:'flex',flexDirection:'column',gap:6,marginBottom:10}}>
             {allZones.map((z) => (
-              <label key={z} style={{display:'flex',alignItems:'center',gap:8,fontSize:13,color:'#cbd5e1',cursor:'pointer'}}>
+              <label key={z} style={{display:'flex',alignItems:'center',gap:8,fontSize:13,color:'#000000ff',cursor:'pointer'}}>
                 <input type="checkbox" checked={selectedZones.includes(z)} onChange={() => toggleZone(z)} style={{accentColor:'#2563eb',width:16,height:16,margin:0}} />
-                <span>Zone {z} <span style={{fontSize:11,marginLeft:4,color:'#94a3b8'}}>({countByZone.get(z) || 0})</span></span>
+                <span>Zone {z} <span style={{fontSize:11,marginLeft:4,color:'#000000ff'}}>({countByZone.get(z) || 0})</span></span>
               </label>
             ))}
           </form>
           <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:10}}>
-            <button onClick={selectAll}  style={{flex:1,padding:'8px 0',borderRadius:8,fontSize:13,background:'rgba(255,255,255,0.10)',color:'#f1f5f9',border:'1px solid rgba(255,255,255,0.10)',cursor:'pointer'}}>All</button>
-            <button onClick={selectNone} style={{flex:1,padding:'8px 0',borderRadius:8,fontSize:13,background:'rgba(255,255,255,0.10)',color:'#f1f5f9',border:'1px solid rgba(255,255,255,0.10)',cursor:'pointer'}}>None</button>
+            <button onClick={selectAll}  style={{flex:1,padding:'8px 0',borderRadius:8,fontSize:13,background:'rgba(255,255,255,0.10)',color:'#F0EDFD',border:'1px solid rgba(255,255,255,0.10)',cursor:'pointer'}}>All</button>
+            <button onClick={selectNone} style={{flex:1,padding:'8px 0',borderRadius:8,fontSize:13,background:'rgba(255,255,255,0.10)',color:'#F0EDFD',border:'1px solid rgba(255,255,255,0.10)',cursor:'pointer'}}>None</button>
           </div>
-          <div style={{marginTop:4,fontSize:12,color:'#94a3b8'}}>{filtered.nodes.length} nodes • {filtered.links.length} links</div>
+          <div style={{marginTop:4,fontSize:12,color:'#000000ff'}}>{filtered.nodes.length} nodes • {filtered.links.length} links</div>
         </div>
       </aside>
 
       {/* 그래프 영역 */}
-      <main style={{flex:1,height:'100%', position:'relative'}}>
+      <main style={{flex:1,height:'100%', position:'relative',background:'#856affff'}}>
         <ForceGraph3D
           ref={fgRef}
           graphData={filtered}
-          backgroundColor="#0f1216"
+          backgroundColor="#0b1220" // 3D 그래프 시각화 배경색 부분 
           nodeThreeObject={nodeThreeObject}
           nodeThreeObjectExtend
           linkThreeObject={linkThreeObject}

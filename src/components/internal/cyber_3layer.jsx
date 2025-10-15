@@ -303,7 +303,7 @@ export default function CyberMultiLayer3D({ onNodeSelect = () => {}, onInspector
     try { fg.d3Force('link') && fg.d3Force('link').strength(() => 0.05); } catch {}
   }, []);
 
-  // 데이터 로딩 (3계층 통합: HOSTS + USES)
+  // 데이터 로딩 (3계층 통합: HOSTS + USES+ PHYSICAL 동일레이어 연결)
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -423,7 +423,7 @@ export default function CyberMultiLayer3D({ onNodeSelect = () => {}, onInspector
     <div style={{ width: '100%', height: '100%', minHeight: 600, background: '#1e1e1e', color: '#fff', overflow: 'hidden', display: 'flex' }}>
       <div style={{ flex: 1, position: 'relative' }}>
         {/* 툴바 */}
-        <div style={{ position: 'absolute', top: 12, left: 12, zIndex: 10, background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 12, padding: 12 }}>
+        <div style={{ position: 'absolute', top: 12, left: 12, zIndex: 10, background: 'rgba(57,48,107,0.7)', backdropFilter: 'blur(4px)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 12, padding: 12 }}>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', fontSize: 12 }}>
             <input placeholder="검색: label, ip, user, role, dept..." value={search} onChange={(e)=>setSearch(e.target.value)} style={{ padding: '4px 8px', borderRadius: 6, border: '1px solid rgba(128,128,128,0.5)', background: 'rgba(20,20,20,0.7)', color: '#fff' }} />
             <span style={{ width: 1, height: 24, background: 'rgba(255,255,255,0.1)' }} />
@@ -456,16 +456,16 @@ export default function CyberMultiLayer3D({ onNodeSelect = () => {}, onInspector
               ))}
             </div>
             <span style={{ width: 1, height: 24, background: 'rgba(255,255,255,0.1)' }} />
-            <button onClick={()=>setPulse(p=>!p)} style={{ padding:'4px 8px', borderRadius:6, background: pulse ? '#3b82f6' : '#2d2d2d', color:'#fff', border:'1px solid rgba(128,128,128,0.5)' }}>{pulse ? '펄스 ON' : '펄스 OFF'}</button>
-            <button onClick={() => { setSearch(''); setLayerFilter({ physical: true, logical: true, persona: true }); setAssumedFilter('all'); setStatusFilter(new Set(STATUS)); }} style={{ padding:'4px 8px', borderRadius:6, background:'#2d2d2d', color:'#fff', border:'1px solid rgba(128,128,128,0.5)' }}>필터 초기화</button>
-            <button onClick={resetView} style={{ padding:'4px 8px', borderRadius:6, background:'#2d2d2d', color:'#fff', border:'1px solid rgba(128,128,128,0.5)' }}>뷰 초기화</button>
+            <button onClick={()=>setPulse(p=>!p)} style={{ padding:'4px 8px', borderRadius:6, background: pulse ? '#3b82f6' : '#F0EDFD', color:'#000', border:'1px solid rgba(128,128,128,0.5)' }}>{pulse ? '펄스 ON' : '펄스 OFF'}</button>
+            <button onClick={() => { setSearch(''); setLayerFilter({ physical: true, logical: true, persona: true }); setAssumedFilter('all'); setStatusFilter(new Set(STATUS)); }} style={{ padding:'4px 8px', borderRadius:6, background:'#F0EDFD', color:'#000', border:'1px solid rgba(128,128,128,0.5)' }}>필터 초기화</button>
+            <button onClick={resetView} style={{ padding:'4px 8px', borderRadius:6, background:'#F0EDFD', color:'#000', border:'1px solid rgba(128,128,128,0.5)' }}>뷰 초기화</button>
           </div>
         </div>
 
         <ForceGraph3D
           ref={fgRef}
           graphData={graphToRender}
-          backgroundColor="#1e1e1e"
+          backgroundColor="#0b1220" // 3계층 시각화 배경색 부분 
           nodeAutoColorBy={null}
           nodeColor={nodeColor}
           nodeLabel={(n) => `${n.label} (layer: ${n.layer})`}

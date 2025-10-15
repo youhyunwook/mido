@@ -667,7 +667,7 @@ export default function NetworkTopology3D_LeftSidebar({ activeView = "default", 
         <ForceGraph3D
           ref={fgRef}
           graphData={filtered}
-          backgroundColor="#0b1220" // 3D 그래프 시각화 배경색 부분 
+          backgroundColor="#0b1220" // 3D 그래프 시각화 배경색 부분 조정
           nodeThreeObject={nodeThreeObject}
           nodeThreeObjectExtend
           linkThreeObject={linkThreeObject}

@@ -465,7 +465,7 @@ export default function CyberMultiLayer3D({ onNodeSelect = () => {}, onInspector
         <ForceGraph3D
           ref={fgRef}
           graphData={graphToRender}
-          backgroundColor="#0b1220" // 3계층 시각화 배경색 부분 
+          backgroundColor="#0b1220" // 3계층 시각화 배경색 부분 조정
           nodeAutoColorBy={null}
           nodeColor={nodeColor}
           nodeLabel={(n) => `${n.label} (layer: ${n.layer})`}

@@ -126,9 +126,9 @@ function mergeRecordsToGraph(allRecords) {
 
 // ===================== 데이터 페치 =====================
 async function fetchThreeLayer(project) {
-  const url = `${API_BASE}/neo4j/nodes?activeView=3layer${project ? `&project=${encodeURIComponent(project)}` : ''}`;
+  const url = `${API_BASE}/neo4j/nodes?activeView=multilayer${project ? `&project=${encodeURIComponent(project)}` : ''}`;
   const res = await fetch(url);
-  if (!res.ok) throw new Error(`API 3layer 실패: ${res.status}`);
+  if (!res.ok) throw new Error(`API multilayer 실패: ${res.status}`);
   return res.json(); // [{src_IP, dst_IP, edge}, ...]
 }
 
@@ -241,6 +241,9 @@ function ConnList({ listType, selectedId, visible, byId, adj }) {
 // ===================== 메인 컴포넌트 =====================
 export default function CyberMultiLayer3D({ onNodeSelect = () => {}, onInspectorChange = () => {} }) {
   const fgRef = useRef();
+  const containerRef = useRef(null);
+  const graphContainerRef = useRef(null);
+  const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
 
   const [graphData, setGraphData] = useState({ nodes: [], links: [] });
   const [pulse, setPulse] = useState(false);
@@ -250,6 +253,7 @@ export default function CyberMultiLayer3D({ onNodeSelect = () => {}, onInspector
   const [layerFilter, setLayerFilter] = useState({ physical: true, logical: true, persona: true });
   const [assumedFilter, setAssumedFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState(new Set(STATUS));
+  const [eventLogs, setEventLogs] = useState([]);
 
   const { byId, adj } = useMemo(() => buildAdjacency(graphData.nodes, graphData.links), [graphData]);
 
@@ -285,9 +289,13 @@ export default function CyberMultiLayer3D({ onNodeSelect = () => {}, onInspector
     const fg = fgRef.current; if (!fg) return;
     const controls = fg.controls && fg.controls();
     if (controls) {
+      // Disable OrbitControls-driven rotate (we use custom pointer rotation)
+      // Keep zoom enabled, but ensure RIGHT mouse button does not trigger dolly/rotate.
       controls.enableRotate = false;
       controls.enablePan = false;
       controls.enableZoom = true;
+      // Map mouse buttons explicitly: LEFT rotate (unused here), MIDDLE dolly, RIGHT pan (pan disabled)
+      try { controls.mouseButtons = { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN }; } catch (e) {}
       controls.minPolarAngle = 1e-6;
       controls.maxPolarAngle = 1e-6;
     }
@@ -323,6 +331,45 @@ export default function CyberMultiLayer3D({ onNodeSelect = () => {}, onInspector
     return () => { mounted = false; };
   }, []);
 
+  // 컨테이너 리사이즈 및 데이터 변경 시 중앙으로 맞춤
+  useEffect(() => {
+    const recenter = () => { try { fgRef.current && fgRef.current.zoomToFit(600, 40); } catch {} };
+    if (graphData.nodes?.length || graphData.links?.length) requestAnimationFrame(recenter);
+    const el = containerRef.current;
+    let ro;
+    if (el && typeof ResizeObserver !== 'undefined') {
+      ro = new ResizeObserver(() => requestAnimationFrame(recenter));
+      ro.observe(el);
+    } else {
+      window.addEventListener('resize', recenter);
+    }
+    return () => {
+      if (ro && el) ro.unobserve(el);
+      window.removeEventListener('resize', recenter);
+    };
+  }, [graphData]);
+
+  // ForceGraph3D를 감싸는 컨테이너의 실제 픽셀 크기를 측정하여 width/height로 전달
+  useEffect(() => {
+    const el = graphContainerRef.current;
+    if (!el) return;
+    const measure = () => {
+      try { setContainerSize({ width: el.clientWidth || 0, height: el.clientHeight || 0 }); } catch {}
+    };
+    measure();
+    let ro;
+    if (typeof ResizeObserver !== 'undefined') {
+      ro = new ResizeObserver(() => measure());
+      try { ro.observe(el); } catch {}
+    } else {
+      window.addEventListener('resize', measure);
+    }
+    return () => {
+      try { if (ro && el) ro.unobserve(el); } catch {}
+      window.removeEventListener('resize', measure);
+    };
+  }, []);
+
   // 회전 제어 (Yaw ±30°, Pitch 제한, Roll 무제한)
   useEffect(() => {
     const fg = fgRef.current; if (!fg) return;
@@ -334,10 +381,21 @@ export default function CyberMultiLayer3D({ onNodeSelect = () => {}, onInspector
   let spacePressed = false;
     const getX = (e) => e.clientX ?? (e.touches && e.touches[0]?.clientX) ?? 0;
     const getY = (e) => e.clientY ?? (e.touches && e.touches[0]?.clientY) ?? 0;
-    const onDown = (e)=>{dragging=true; lastX=getX(e); lastY=getY(e);};
   const onMove = (e)=>{ if(!dragging) return; const x=getX(e), y=getY(e); const dx=x-lastX, dy=y-lastY; lastX=x; lastY=y; if(spacePressed){ scene.rotation.z += dx*ROLL_SENS; } else { scene.rotation.y += dx*YAW_SENS; scene.rotation.x += dy*PITCH_SENS; } clampAll(); };
     const onUp = ()=>{dragging=false;};
-    dom.addEventListener('pointerdown', onDown);
+    // 우클릭 줌인줌아웃 방지 및 드래그 등 금지
+    const onDown = (e)=>{
+      try {
+        if ((e.pointerType === 'mouse' || typeof e.button === 'number') && e.button === 2) {
+          try { e.preventDefault(); e.stopPropagation(); } catch (err) {}
+          return;
+        }
+      } catch (err) {}
+      dragging=true; lastX=getX(e); lastY=getY(e);
+    };
+    dom.addEventListener('pointerdown', onDown, { capture: true });
+  const onContextMenu = (ev) => { try { ev.preventDefault(); } catch (e) {} };
+  dom.addEventListener('contextmenu', onContextMenu);
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
     dom.addEventListener('pointerleave', onUp);
@@ -350,7 +408,7 @@ export default function CyberMultiLayer3D({ onNodeSelect = () => {}, onInspector
     window.addEventListener('keydown', onKey);
     window.addEventListener('keydown', onSpaceDown);
     window.addEventListener('keyup', onSpaceUp);
-    return ()=>{ dom.removeEventListener('pointerdown', onDown); window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', onUp); dom.removeEventListener('pointerleave', onUp); window.removeEventListener('keydown', onKey); window.removeEventListener('keydown', onSpaceDown); window.removeEventListener('keyup', onSpaceUp); };
+    return ()=>{ dom.removeEventListener('pointerdown', onDown); dom.removeEventListener('contextmenu', onContextMenu); window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', onUp); dom.removeEventListener('pointerleave', onUp); window.removeEventListener('keydown', onKey); window.removeEventListener('keydown', onSpaceDown); window.removeEventListener('keyup', onSpaceUp); };
   }, []);
 
   // 필터링 후 시각화용 그래프 계산
@@ -397,7 +455,7 @@ export default function CyberMultiLayer3D({ onNodeSelect = () => {}, onInspector
   const linkParticles = (l) => { if (!pulse || !selectedId) return 0; const s = l.source; const t = l.target; if (!s || !t || typeof s.id === 'undefined' || typeof t.id === 'undefined') return 0; const touchesSel = s.id === selectedId || t.id === selectedId; return touchesSel && isCrossLayer(s, t) ? 2 : 0; };
   const linkMaterial = (l) => { const color = new THREE.Color(linkColor(l)); if (l.assumed) { try { return new THREE.LineDashedMaterial({ color, dashSize: 2, gapSize: 1, transparent: true, opacity: isLinkDimmed(l) ? 0.25 : 0.65 }); } catch { return new THREE.LineBasicMaterial({ color, transparent: true, opacity: isLinkDimmed(l) ? 0.25 : 0.65 }); } } return new THREE.LineBasicMaterial({ color, transparent: true, opacity: isLinkDimmed(l) ? 0.25 : 0.95 }); };
 
-  const onBackgroundClick = () => { setSelectedId(null); onNodeSelect(null); onInspectorChange(null); };
+  const onBackgroundClick = () => { setSelectedId(null); onNodeSelect(null); onInspectorChange(null); setEventLogs([]); };
   const resetView = () => { setSelectedId(null); onNodeSelect(null); const fg = fgRef.current; if (!fg) return; try { const rot = fg.scene().rotation; rot.order='YXZ'; rot.x = 0; rot.y = 0; rot.z = 0; } catch {} fg.cameraPosition({ x: 0, y: 1800, z: 0 }, { x: 0, y: 0, z: 0 }, 600); };
   const onNodeClick = (node) => {
     setSelectedId(node?.id || null);
@@ -405,7 +463,64 @@ export default function CyberMultiLayer3D({ onNodeSelect = () => {}, onInspector
       const panel = <NodeDetailPanel selected={node} adj={adj} visible={visible} byId={byId} onClearSelection={onBackgroundClick} onResetView={resetView} />;
       onNodeSelect(panel);
       try { onInspectorChange(panel); } catch(e) {}
-    } else { onNodeSelect(null); onInspectorChange(null); }
+      
+      // 연결된 노드 정보 수집
+      const connectedNodes = adj.get(node.id) || new Set();
+      const connectedIps = Array.from(connectedNodes)
+        .map(nid => byId[nid])
+        .filter(n => n && n.ip)
+        .map(n => n.ip);
+      
+      // 클릭한 노드와 연결된 모든 링크의 상세 정보 수집 (dbInfo)
+      const dbInfo = visible.links
+        .filter(link => {
+          const sid = link.__sid || (typeof link.source === 'object' ? link.source.id : link.source);
+          const tid = link.__tid || (typeof link.target === 'object' ? link.target.id : link.target);
+          return sid === node.id || tid === node.id;
+        })
+        .map(link => {
+          const sid = link.__sid || (typeof link.source === 'object' ? link.source.id : link.source);
+          const tid = link.__tid || (typeof link.target === 'object' ? link.target.id : link.target);
+          const srcNode = byId[sid];
+          const dstNode = byId[tid];
+          
+          return {
+            src_IP: srcNode ? {
+              id: srcNode.id,
+              ip: srcNode.ip,
+              __labels: [srcNode.layer, srcNode.type],
+              __id: srcNode.id,
+              index: srcNode.index
+            } : null,
+            dst_IP: dstNode ? {
+              id: dstNode.id,
+              ip: dstNode.ip,
+              __labels: [dstNode.layer, dstNode.type],
+              __id: dstNode.id,
+              index: dstNode.index,
+              __indexColor: dstNode.color,
+              color: dstNode.color
+            } : null,
+            edge: {
+              sourceIP: sid,
+              targetIP: tid,
+              kind: link.kind,
+              assumed: link.assumed,
+              confidence: link.confidence
+            }
+          };
+        });
+      
+      const newLog = {
+        message: `노드 선택: ${node.label || node.id}`,
+        timestamp: new Date().toLocaleTimeString(),
+        nodeInfo: { layer: node.layer, type: node.type, ip: node.ip },
+        connectedCount: connectedNodes.size,
+        connectedIps: connectedIps,
+        dbInfo: dbInfo
+      };
+      setEventLogs([newLog]);
+    } else { onNodeSelect(null); onInspectorChange(null); setEventLogs([]); }
   };
   const onLinkClick = (l) => { const sid = l.__sid || (typeof l.source==='object'?l.source.id:l.source); const node = byId[sid]; if (node) onNodeClick(node); };
   const onLinkUpdate = (link, threeObj) => { try { const line = link.__lineObj || threeObj; if (line && line.computeLineDistances) line.computeLineDistances(); } catch {} };
@@ -420,10 +535,21 @@ export default function CyberMultiLayer3D({ onNodeSelect = () => {}, onInspector
   }, [pulse, visible, selectedId, adj]);
 
   return (
-    <div style={{ width: '100%', height: '100%', minHeight: 600, background: '#1e1e1e', color: '#fff', overflow: 'hidden', display: 'flex' }}>
-      <div style={{ flex: 1, position: 'relative' }}>
-        {/* 툴바 */}
-        <div style={{ position: 'absolute', top: 12, left: 12, zIndex: 10, background: 'rgba(57,48,107,0.7)', backdropFilter: 'blur(4px)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 12, padding: 12 }}>
+  <div ref={containerRef} style={{ display: 'flex', width: '100%', height: 'calc(100vh - 120px)', gap: '24px', padding: '16px' }}>
+      {/* 메인 컨텐츠 영역 */}
+      <div style={{ flex: 1, minWidth: 0, height: '100%' }}>
+        <div style={{ width: '100%', height: '100%', minHeight: 600, color: '#fff', display: 'flex', flexDirection: 'row' }}>
+          <div ref={graphContainerRef} style={{
+            flex: 1,
+            position: 'relative',
+            overflow: 'hidden',
+            borderRadius: '20px',
+            boxShadow: '0 2px 8px rgba(57, 48, 107, 0.07)',
+            marginRight: '8px',
+            background: '#0b1220',
+          }}>
+            {/* 툴바 */}
+            <div style={{ position: 'absolute', top: 12, left: 12, zIndex: 10, background: 'rgba(57,48,107,0.7)', backdropFilter: 'blur(4px)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 12, padding: 12 }}>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', fontSize: 12 }}>
             <input placeholder="검색: label, ip, user, role, dept..." value={search} onChange={(e)=>setSearch(e.target.value)} style={{ padding: '4px 8px', borderRadius: 6, border: '1px solid rgba(128,128,128,0.5)', background: 'rgba(20,20,20,0.7)', color: '#fff' }} />
             <span style={{ width: 1, height: 24, background: 'rgba(255,255,255,0.1)' }} />
@@ -465,7 +591,9 @@ export default function CyberMultiLayer3D({ onNodeSelect = () => {}, onInspector
         <ForceGraph3D
           ref={fgRef}
           graphData={graphToRender}
-          backgroundColor="#0b1220" // 3계층 시각화 배경색 부분 조정
+          backgroundColor="#0b1220" // 3계층 시각화 배경색 부분 
+          width={containerSize.width}
+          height={containerSize.height}
           nodeAutoColorBy={null}
           nodeColor={nodeColor}
           nodeLabel={(n) => `${n.label} (layer: ${n.layer})`}
@@ -489,7 +617,114 @@ export default function CyberMultiLayer3D({ onNodeSelect = () => {}, onInspector
             <div style={{background:'rgba(0,0,0,0.6)',color:'#fff',padding:'12px 18px',borderRadius:8,backdropFilter:'blur(4px)'}}>Loading…</div>
           </div>
         )}
+          </div>
+        </div>
       </div>
+
+      {/* 우측 이벤트 로그 패널 */}
+      <aside style={{
+        minWidth: '350px',
+        width: '300px',
+        background: '#f0edfd',
+        color: '#000',
+        padding: '20px',
+        boxShadow: '0 2px 8px rgba(57, 48, 107, 0.07)',
+        borderRadius: '20px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '16px',
+        overflowY: 'auto',
+        flexShrink: 0,
+        height: '100%',
+      }}>
+        <div style={{ fontSize: '1.2em', fontWeight: 700, color: '#39306b', marginBottom: '12px' }}>
+          이벤트 로그
+        </div>
+        <div style={{ flex: 1, overflowY: 'auto' }}>
+          {eventLogs.length === 0 ? (
+            <div style={{ color: '#666', fontSize: '14px', padding: '10px' }}>
+              노드를 클릭하면 이벤트 로그가 표시됩니다.
+            </div>
+          ) : (
+            eventLogs.map((log, idx) => (
+              <div key={idx} style={{
+                padding: '10px',
+                marginBottom: '8px',
+                background: 'rgba(57, 48, 107, 0.1)',
+                borderRadius: '8px',
+                fontSize: '13px',
+                color: '#333'
+              }}>
+                {log.message && <div style={{ fontWeight: 600, marginBottom: '4px', color: '#222' }}>{log.message}</div>}
+                {log.timestamp && <div style={{ fontSize: '11px', color: '#666' }}>{log.timestamp}</div>}
+                {log.nodeInfo && (
+                  <div style={{ fontSize: '11px', color: '#666', marginTop: '4px' }}>
+                    Layer: {log.nodeInfo.layer} | Type: {log.nodeInfo.type}
+                  </div>
+                )}
+
+                {/* 연결된 노드 개수 */}
+                {log.connectedCount !== undefined && (
+                  <div style={{ marginTop: '8px', marginBottom: '8px', color: '#222' }}>
+                    연결된 노드 개수: {log.connectedCount}
+                    {Array.isArray(log.connectedIps) && log.connectedIps.length > 0 && (
+                      <details style={{ marginTop: '4px', color: '#222' }}>
+                        <summary style={{ cursor: 'pointer', color: '#1976d2', fontWeight: 'bold' }}>연결된 노드 IP 목록 보기</summary>
+                        <ul style={{ margin: 0, paddingLeft: 16 }}>
+                          {log.connectedIps.map((ip, i) => (
+                            <li key={ip + i} style={{ color: '#222' }}>{ip}</li>
+                          ))}
+                        </ul>
+                      </details>
+                    )}
+                  </div>
+                )}
+
+                {/* dbInfo 배열 출력 */}
+                {Array.isArray(log.dbInfo) && log.dbInfo.length > 0 && log.dbInfo.map((info, i) => (
+                  <div key={i} style={{ margin: '8px 0', color: '#222' }}>
+                    {info.src_IP && (
+                      <div style={{ marginBottom: '12px', color: '#222' }}>
+                        <strong>Source IP</strong>
+                        <ul style={{ margin: 0, paddingLeft: 16 }}>
+                          {Object.entries(info.src_IP)
+                            .filter(([key]) => ["ip", "__labels", "__id", "id", "index"].includes(key))
+                            .map(([key, value]) => (
+                              <li key={key} style={{ color: '#222' }}><b>{key}:</b> {String(value)}</li>
+                            ))}
+                        </ul>
+                      </div>
+                    )}
+                    {info.dst_IP && (
+                      <div style={{ marginBottom: '12px', color: '#222' }}>
+                        <strong>Destination IP</strong>
+                        <ul style={{ margin: 0, paddingLeft: 16 }}>
+                          {Object.entries(info.dst_IP)
+                            .filter(([key]) => ["ip", "__labels", "__id", "id", "__indexColor", "color", "index"].includes(key))
+                            .map(([key, value]) => (
+                              <li key={key} style={{ color: '#222' }}><b>{key}:</b> {String(value)}</li>
+                            ))}
+                        </ul>
+                      </div>
+                    )}
+                    {info.edge && (
+                      <div style={{ marginBottom: '12px', color: '#222' }}>
+                        <strong>Edge Info</strong>
+                        <ul style={{ margin: 0, paddingLeft: 16 }}>
+                          {Object.entries(info.edge)
+                            .map(([key, value]) => (
+                              <li key={key} style={{ color: '#222' }}><b>{key}:</b> {String(value)}</li>
+                            ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ))
+          )}
+        </div>
+      </aside>
     </div>
   );
 }
